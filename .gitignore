@@ -1,0 +1,15 @@
+# Compiled binary
+ClaudeMonitor
+
+# Object files / build artifacts
+*.o
+.build/
+
+# macOS
+.DS_Store
+
+# Logs
+*.log
+
+# Internal notes (not for publication)
+CLAUDE.md
