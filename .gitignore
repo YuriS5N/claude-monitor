@@ -18,3 +18,8 @@ packaging/AppIcon-1024.png
 
 # Internal notes (not for publication)
 CLAUDE.md
+
+# Certificados de assinatura (NUNCA versionar)
+*.p12
+*.cer
+*.p8
