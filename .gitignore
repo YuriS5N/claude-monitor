@@ -11,5 +11,10 @@ ClaudeMonitor
 # Logs
 *.log
 
+# Packaging build artifacts (gerados por packaging/*.sh)
+packaging/dist/
+packaging/AppIcon.icns
+packaging/AppIcon-1024.png
+
 # Internal notes (not for publication)
 CLAUDE.md

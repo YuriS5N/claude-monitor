@@ -4,6 +4,8 @@
 
 ![Swift 6](https://img.shields.io/badge/Swift-6-orange) ![macOS 14+](https://img.shields.io/badge/macOS-14%2B-black) ![Apple Silicon](https://img.shields.io/badge/Apple%20Silicon-arm64-blue) ![License: MIT](https://img.shields.io/badge/License-MIT-green)
 
+**[⬇︎ Download for macOS](https://github.com/YuriS5N/claude-monitor/releases/latest/download/ClaudeMonitor.dmg)** · [Website](https://yuris5n.github.io/claude-monitor/) · [Case study](docs/PORTFOLIO.md)
+
 ![Claude Monitor](docs/screenshot.png)
 
 ## What it does
@@ -27,7 +29,11 @@ The menu-bar title itself is compact — a status glyph plus the current 5h/7d p
 
 > **Requirements & cost.** This app requires a working Claude Code auth / Anthropic API access on your machine — it does nothing useful without it. The periodic 1-token Haiku call has a tiny but non-zero cost (a handful of input tokens every 5 minutes). If that matters to you, adjust the interval in `fetchRateLimits()`.
 
-## Install / build
+## Install
+
+**Just want to use it?** Download the latest **[ClaudeMonitor.dmg](https://github.com/YuriS5N/claude-monitor/releases/latest/download/ClaudeMonitor.dmg)**, open it, and drag **Claude Monitor** onto the Applications folder. It's signed & notarized by Apple, so a double-click opens it — no Gatekeeper warnings. Apple Silicon · macOS 14+.
+
+## Build from source
 
 No Xcode required — it compiles directly with `swiftc` (using the Objective-C `ExceptionCatcher` bridging header to catch intermittent CoreText exceptions).
 
@@ -68,6 +74,22 @@ You can generate the product screenshot above — with fixed sample data, no API
 
 Swift 6 · SwiftUI · AppKit · single-file app (`Sources/ClaudeMonitor.swift`) · zero external dependencies · targets macOS 14+ on Apple Silicon.
 
+## Building the installer
+
+The signed, notarized `.dmg` is produced by the scripts in [`packaging/`](packaging/) —
+icon generation, `.app` bundling, code signing, Apple notarization and GitHub releases.
+See [`packaging/README.md`](packaging/README.md).
+
+## Support
+
+Claude Monitor is free and open source. If it saves you a trip to the terminal, you can
+**[buy me a coffee ☕](https://donate.stripe.com/6oU14o8RefjYfD30AxcAo05)** — one-time,
+secure payment via Stripe, no account needed. Every bit is appreciated. 🙏
+
 ## License
 
 [MIT](LICENSE) © 2026 Yuri Gomes de Abreu
+
+---
+
+*Not affiliated with Anthropic. "Claude" is a trademark of Anthropic, PBC.*

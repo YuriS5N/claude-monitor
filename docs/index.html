@@ -1,0 +1,461 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1.0" />
+<title>Claude Monitor — Claude Code limits in your macOS menu bar</title>
+<meta name="description" content="A native macOS menu-bar app that shows your Claude Code rate limits at a glance — 5h & weekly usage, daily activity, tokens by model, and active sessions. Free & open source." />
+<meta name="theme-color" content="#17140f" />
+<link rel="icon" type="image/png" href="./icon.png" />
+<link rel="apple-touch-icon" href="./icon.png" />
+<!-- Open Graph / social -->
+<meta property="og:type" content="website" />
+<meta property="og:title" content="Claude Monitor — Claude Code limits in your menu bar" />
+<meta property="og:description" content="Native macOS menu-bar app for your Claude Code rate limits. Free & open source." />
+<meta property="og:image" content="./icon-512.png" />
+<meta name="twitter:card" content="summary_large_image" />
+<style>
+  :root{
+    --bg:#100e0c; --bg2:#17140f; --card:rgba(255,255,255,.035); --card-brd:rgba(255,255,255,.08);
+    --ink:#f6f1ea; --muted:#a99f92; --faint:#6f665b;
+    --coral:#e8896a; --coral2:#c15f3c; --coral-ink:#ffd9c9;
+    --green:#4caf72; --orange:#e8935a; --red:#e05a4f; --purple:#b07de0;
+    --radius:18px; --maxw:1080px;
+    --font:-apple-system,BlinkMacSystemFont,"Segoe UI",Roboto,Helvetica,Arial,sans-serif;
+    --mono:ui-monospace,"SF Mono",SFMono-Regular,Menlo,Consolas,monospace;
+  }
+  *{box-sizing:border-box;margin:0;padding:0}
+  html{scroll-behavior:smooth}
+  body{background:var(--bg);color:var(--ink);font-family:var(--font);line-height:1.6;
+    -webkit-font-smoothing:antialiased;overflow-x:hidden}
+  a{color:inherit;text-decoration:none}
+  .wrap{max-width:var(--maxw);margin:0 auto;padding:0 24px}
+  .btn{display:inline-flex;align-items:center;gap:9px;font-weight:600;font-size:15px;
+    padding:13px 22px;border-radius:12px;border:1px solid transparent;cursor:pointer;
+    transition:transform .15s ease,box-shadow .2s ease,background .2s ease,border-color .2s}
+  .btn:active{transform:translateY(1px)}
+  .btn-primary{background:linear-gradient(135deg,var(--coral),var(--coral2));color:#fff;
+    box-shadow:0 8px 26px -8px rgba(232,137,106,.6)}
+  .btn-primary:hover{box-shadow:0 12px 34px -8px rgba(232,137,106,.75);transform:translateY(-1px)}
+  .btn-ghost{background:var(--card);border-color:var(--card-brd);color:var(--ink)}
+  .btn-ghost:hover{border-color:rgba(255,255,255,.22);background:rgba(255,255,255,.06)}
+  .eyebrow{font-size:13px;font-weight:700;letter-spacing:.08em;text-transform:uppercase;
+    color:var(--coral);margin-bottom:14px}
+  section{padding:88px 0;position:relative}
+  h2{font-size:clamp(26px,4vw,38px);font-weight:800;letter-spacing:-.02em;line-height:1.15}
+  .sub{color:var(--muted);font-size:17px;max-width:560px;margin-top:14px}
+
+  /* ── NAV ── */
+  nav{position:sticky;top:0;z-index:50;backdrop-filter:blur(14px);
+    background:rgba(16,14,12,.72);border-bottom:1px solid var(--card-brd)}
+  .nav-in{display:flex;align-items:center;gap:20px;height:64px}
+  .brand{display:flex;align-items:center;gap:10px;font-weight:700;font-size:16px}
+  .brand img{width:30px;height:30px;border-radius:8px}
+  .nav-links{display:flex;gap:26px;margin-left:18px}
+  .nav-links a{color:var(--muted);font-size:14.5px;font-weight:500}
+  .nav-links a:hover{color:var(--ink)}
+  .nav-right{margin-left:auto;display:flex;align-items:center;gap:12px}
+  .lang{display:flex;gap:2px;background:var(--card);border:1px solid var(--card-brd);
+    border-radius:10px;padding:3px}
+  .lang button{background:none;border:none;color:var(--muted);font-size:12.5px;font-weight:700;
+    padding:5px 8px;border-radius:7px;cursor:pointer;font-family:var(--font)}
+  .lang button.active{background:linear-gradient(135deg,var(--coral),var(--coral2));color:#fff}
+  .nav-gh{color:var(--muted)}.nav-gh:hover{color:var(--ink)}
+  @media(max-width:820px){.nav-links{display:none}}
+
+  /* ── HERO ── */
+  .hero{padding-top:70px;padding-bottom:40px;text-align:center;position:relative}
+  .glow{position:absolute;top:-140px;left:50%;transform:translateX(-50%);width:900px;height:640px;
+    background:radial-gradient(ellipse at center,rgba(232,137,106,.22),transparent 62%);
+    filter:blur(20px);pointer-events:none;z-index:0}
+  .hero>*:not(.glow){position:relative;z-index:1}
+  .badge{display:inline-flex;align-items:center;gap:8px;font-size:13px;font-weight:600;
+    color:var(--coral-ink);background:rgba(232,137,106,.12);border:1px solid rgba(232,137,106,.28);
+    padding:7px 15px;border-radius:100px;margin-bottom:26px}
+  .badge .dot{width:7px;height:7px;border-radius:50%;background:var(--coral);
+    box-shadow:0 0 0 4px rgba(232,137,106,.25)}
+  h1{font-size:clamp(34px,6.2vw,60px);font-weight:850;letter-spacing:-.03em;line-height:1.05;
+    max-width:720px;margin:0 auto}
+  h1 .accent{background:linear-gradient(115deg,var(--coral),#f0b49c);-webkit-background-clip:text;
+    background-clip:text;-webkit-text-fill-color:transparent}
+  .hero p.lead{color:var(--muted);font-size:19px;max-width:600px;margin:22px auto 0}
+  .cta{display:flex;gap:14px;justify-content:center;flex-wrap:wrap;margin-top:34px}
+  .req{color:var(--faint);font-size:13.5px;margin-top:18px;letter-spacing:.01em}
+  .shot{margin:56px auto 0;max-width:360px;position:relative}
+  .shot img{width:100%;border-radius:20px;box-shadow:0 40px 90px -30px rgba(0,0,0,.85),
+    0 0 0 1px rgba(255,255,255,.06);background:#fff}
+  .shot::after{content:"";position:absolute;inset:auto 0 -30px 0;height:60px;
+    background:radial-gradient(ellipse at center,rgba(232,137,106,.35),transparent 70%);filter:blur(24px);z-index:-1}
+
+  /* ── FEATURES ── */
+  .grid{display:grid;grid-template-columns:repeat(3,1fr);gap:18px;margin-top:52px}
+  @media(max-width:860px){.grid{grid-template-columns:repeat(2,1fr)}}
+  @media(max-width:560px){.grid{grid-template-columns:1fr}}
+  .fcard{background:var(--card);border:1px solid var(--card-brd);border-radius:var(--radius);
+    padding:26px 24px;transition:border-color .2s,transform .2s,background .2s}
+  .fcard:hover{border-color:rgba(232,137,106,.4);transform:translateY(-3px);background:rgba(255,255,255,.05)}
+  .fico{width:44px;height:44px;border-radius:12px;display:grid;place-items:center;font-size:22px;
+    margin-bottom:16px;background:rgba(232,137,106,.14);border:1px solid rgba(232,137,106,.22)}
+  .fcard h3{font-size:17px;font-weight:700;margin-bottom:7px}
+  .fcard p{color:var(--muted);font-size:14.5px}
+
+  /* ── HOW ── */
+  .how{background:var(--bg2);border-top:1px solid var(--card-brd);border-bottom:1px solid var(--card-brd)}
+  .how-grid{display:grid;grid-template-columns:repeat(3,1fr);gap:34px;margin-top:50px}
+  @media(max-width:760px){.how-grid{grid-template-columns:1fr;gap:30px}}
+  .step-n{font-family:var(--mono);font-size:13px;font-weight:700;color:var(--coral);
+    border:1px solid rgba(232,137,106,.3);border-radius:8px;padding:3px 9px;display:inline-block;margin-bottom:14px}
+  .how h3{font-size:18px;font-weight:700;margin-bottom:8px}
+  .how p{color:var(--muted);font-size:15px}
+  .privacy{margin-top:54px;display:flex;gap:14px;align-items:flex-start;background:var(--card);
+    border:1px solid var(--card-brd);border-radius:var(--radius);padding:22px 24px}
+  .privacy .pico{font-size:24px;flex-shrink:0}
+  .privacy strong{color:var(--ink)}
+  .privacy p{font-size:14.5px;color:var(--muted)}
+
+  /* ── INSTALL ── */
+  .steps{display:grid;grid-template-columns:repeat(3,1fr);gap:20px;margin-top:50px;counter-reset:s}
+  @media(max-width:760px){.steps{grid-template-columns:1fr}}
+  .step{background:var(--card);border:1px solid var(--card-brd);border-radius:var(--radius);padding:28px 26px;position:relative}
+  .step::before{counter-increment:s;content:counter(s);position:absolute;top:-16px;left:24px;
+    width:38px;height:38px;border-radius:11px;display:grid;place-items:center;font-weight:800;font-size:17px;
+    background:linear-gradient(135deg,var(--coral),var(--coral2));color:#fff;box-shadow:0 8px 20px -6px rgba(232,137,106,.6)}
+  .step h3{font-size:17px;margin:14px 0 7px;font-weight:700}
+  .step p{color:var(--muted);font-size:14.5px}
+  .step code{font-family:var(--mono);font-size:13px;background:rgba(255,255,255,.06);
+    padding:2px 7px;border-radius:6px;color:var(--coral-ink)}
+  .install-cta{text-align:center;margin-top:46px}
+  .install-alt{color:var(--faint);font-size:14px;margin-top:16px}
+  .install-alt a{color:var(--coral);border-bottom:1px solid rgba(232,137,106,.4)}
+
+  /* ── DONATE ── */
+  .donate{background:var(--bg2);border-top:1px solid var(--card-brd)}
+  .donate-box{background:linear-gradient(160deg,rgba(232,137,106,.10),rgba(255,255,255,.02));
+    border:1px solid rgba(232,137,106,.25);border-radius:26px;padding:52px 40px;text-align:center;margin-top:20px}
+  .coffee-emoji{font-size:52px;margin-bottom:10px}
+  .tiers{display:flex;gap:14px;justify-content:center;flex-wrap:wrap;margin-top:32px}
+  .tier{background:var(--card);border:1px solid var(--card-brd);border-radius:16px;
+    padding:22px 20px;min-width:130px;cursor:pointer;transition:all .18s;display:block}
+  .tier:hover{border-color:var(--coral);transform:translateY(-3px);background:rgba(232,137,106,.08)}
+  .tier .t-emoji{font-size:30px}
+  .tier .t-name{font-weight:700;font-size:15px;margin-top:8px}
+  .tier .t-amt{color:var(--coral-ink);font-family:var(--mono);font-size:14px;margin-top:2px}
+  .donate-note{color:var(--faint);font-size:13.5px;margin-top:26px}
+  .donate-note svg{vertical-align:-2px;margin-right:5px}
+
+  /* ── FOOTER ── */
+  footer{padding:52px 0 60px;border-top:1px solid var(--card-brd);text-align:center}
+  .foot-links{display:flex;gap:24px;justify-content:center;flex-wrap:wrap;margin-bottom:20px}
+  .foot-links a{color:var(--muted);font-size:14.5px;font-weight:500}
+  .foot-links a:hover{color:var(--coral)}
+  footer p{color:var(--faint);font-size:13.5px}
+  footer .heart{color:var(--coral)}
+  .os-ico{width:17px;height:17px;vertical-align:-3px}
+</style>
+</head>
+<body>
+
+<!-- ══════════ NAV ══════════ -->
+<nav>
+  <div class="wrap nav-in">
+    <a class="brand" href="#top"><img src="./icon.png" alt="Claude Monitor" />Claude&nbsp;Monitor</a>
+    <div class="nav-links">
+      <a href="#features" data-i18n="nav.features">Features</a>
+      <a href="#how" data-i18n="nav.how">How it works</a>
+      <a href="#install" data-i18n="nav.install">Install</a>
+      <a href="#support" data-i18n="nav.support">Support</a>
+    </div>
+    <div class="nav-right">
+      <div class="lang" id="lang">
+        <button data-lang="en">EN</button>
+        <button data-lang="pt">PT</button>
+        <button data-lang="es">ES</button>
+        <button data-lang="fr">FR</button>
+      </div>
+      <a class="nav-gh" href="https://github.com/YuriS5N/claude-monitor" target="_blank" rel="noopener" aria-label="GitHub">
+        <svg width="22" height="22" viewBox="0 0 16 16" fill="currentColor"><path d="M8 0C3.58 0 0 3.58 0 8c0 3.54 2.29 6.53 5.47 7.59.4.07.55-.17.55-.38 0-.19-.01-.82-.01-1.49-2.01.37-2.53-.49-2.69-.94-.09-.23-.48-.94-.82-1.13-.28-.15-.68-.52-.01-.53.63-.01 1.08.58 1.23.82.72 1.21 1.87.87 2.33.66.07-.52.28-.87.51-1.07-1.78-.2-3.64-.89-3.64-3.95 0-.87.31-1.59.82-2.15-.08-.2-.36-1.02.08-2.12 0 0 .67-.21 2.2.82.64-.18 1.32-.27 2-.27.68 0 1.36.09 2 .27 1.53-1.04 2.2-.82 2.2-.82.44 1.1.16 1.92.08 2.12.51.56.82 1.27.82 2.15 0 3.07-1.87 3.75-3.65 3.95.29.25.54.73.54 1.48 0 1.07-.01 1.93-.01 2.2 0 .21.15.46.55.38A8.01 8.01 0 0016 8c0-4.42-3.58-8-8-8z"/></svg>
+      </a>
+      <a class="btn btn-primary" id="nav-dl" href="#install" data-i18n="nav.download">Download</a>
+    </div>
+  </div>
+</nav>
+
+<!-- ══════════ HERO ══════════ -->
+<header class="hero wrap" id="top">
+  <div class="glow"></div>
+  <span class="badge"><span class="dot"></span><span data-i18n="hero.badge">Free · Open source · Native macOS</span></span>
+  <h1 data-i18n-html="hero.title">Your Claude Code limits, <span class="accent">right in the menu bar.</span></h1>
+  <p class="lead" data-i18n="hero.lead">A native macOS menu-bar app that surfaces your Claude Code usage at a glance — no terminal, no telemetry. Real data, straight from Anthropic.</p>
+  <div class="cta">
+    <a class="btn btn-primary" href="#install">
+      <svg class="os-ico" viewBox="0 0 16 16" fill="currentColor"><path d="M11.18 0c.08.9-.28 1.79-.83 2.43-.55.64-1.45 1.14-2.33 1.07-.1-.87.32-1.78.84-2.36C9.42.57 10.38.07 11.18 0zM13.9 11.6c-.35.8-.51 1.16-.96 1.87-.62.99-1.5 2.23-2.58 2.24-.96.01-1.21-.63-2.51-.62-1.3 0-1.57.63-2.53.63-1.08.01-1.91-1.11-2.53-2.1C1.03 10.86.84 7.6 1.9 5.86c.75-1.24 1.94-1.97 3.06-1.97 1.14 0 1.86.63 2.8.63.91 0 1.47-.63 2.79-.63 1 0 2.06.55 2.81 1.49-2.47 1.35-2.07 4.88.54 6.22z"/></svg>
+      <span data-i18n="hero.cta1">Download for macOS</span>
+    </a>
+    <a class="btn btn-ghost" href="https://github.com/YuriS5N/claude-monitor" target="_blank" rel="noopener" data-i18n="hero.cta2">View source on GitHub</a>
+  </div>
+  <p class="req" data-i18n="hero.req">Apple Silicon · macOS 14+ · signed &amp; notarized · ~1.3 MB</p>
+  <div class="shot"><img src="./screenshot.png" alt="Claude Monitor popover showing 5h and weekly usage, daily activity and active sessions" /></div>
+</header>
+
+<!-- ══════════ FEATURES ══════════ -->
+<section id="features" class="wrap">
+  <div class="eyebrow" data-i18n="feat.eyebrow">Everything at a glance</div>
+  <h2 data-i18n="feat.title">Your whole Claude Code picture, in one popover</h2>
+  <div class="grid">
+    <div class="fcard"><div class="fico">⏱️</div><h3 data-i18n="feat.f1.t">5-hour session</h3><p data-i18n="feat.f1.d">Percent of the rolling 5-hour window used, with a time-vs-usage pace marker and a countdown to reset.</p></div>
+    <div class="fcard"><div class="fico">📅</div><h3 data-i18n="feat.f2.t">Weekly (7-day)</h3><p data-i18n="feat.f2.d">The same for the rolling 7-day window — pace marker and reset countdown, so you never get surprised.</p></div>
+    <div class="fcard"><div class="fico">💬</div><h3 data-i18n="feat.f3.t">Today</h3><p data-i18n="feat.f3.d">Message count for the day and the list of projects you actually touched.</p></div>
+    <div class="fcard"><div class="fico">📊</div><h3 data-i18n="feat.f4.t">7-day chart</h3><p data-i18n="feat.f4.d">Messages per day as a bar chart, colored green / orange / red relative to your weekly average.</p></div>
+    <div class="fcard"><div class="fico">#️⃣</div><h3 data-i18n="feat.f5.t">Tokens by model</h3><p data-i18n="feat.f5.d">A clean breakdown of your token usage across Opus, Sonnet and Haiku.</p></div>
+    <div class="fcard"><div class="fico">🖥️</div><h3 data-i18n="feat.f6.t">Active sessions</h3><p data-i18n="feat.f6.d">Every running Claude Code session with its status (busy / idle) and per-session memory.</p></div>
+  </div>
+</section>
+
+<!-- ══════════ HOW IT WORKS ══════════ -->
+<section id="how" class="how">
+  <div class="wrap">
+    <div class="eyebrow" data-i18n="how.eyebrow">Under the hood</div>
+    <h2 data-i18n="how.title">Real data. Your own login. Nothing leaves your Mac.</h2>
+    <div class="how-grid">
+      <div><span class="step-n">01</span><h3 data-i18n="how.h1">Straight from Anthropic</h3><p data-i18n-html="how.d1">Every 5 minutes it makes one tiny 1-token Haiku call and reads the official <code>anthropic-ratelimit-*</code> response headers. These limits are unified across your whole account.</p></div>
+      <div><span class="step-n">02</span><h3 data-i18n="how.h2">Uses your existing auth</h3><p data-i18n="how.d2">It reads the OAuth token that Claude Code already stores in your macOS Keychain. Nothing to paste, nothing to configure — Claude Code keeps it refreshed.</p></div>
+      <div><span class="step-n">03</span><h3 data-i18n="how.h3">100% local &amp; private</h3><p data-i18n-html="how.d3">Reads only your local <code>~/.claude</code> files for today's activity, the chart and sessions. No telemetry, no analytics, no third parties.</p></div>
+    </div>
+    <div class="privacy">
+      <div class="pico">🔒</div>
+      <p data-i18n-html="how.privacy"><strong>Honest note.</strong> Claude Monitor needs an active Claude Code / Anthropic login on your machine — it does nothing without one. The periodic 1-token call has a tiny but non-zero cost (a few input tokens every 5 minutes). That's the only network call it ever makes.</p>
+    </div>
+  </div>
+</section>
+
+<!-- ══════════ INSTALL ══════════ -->
+<section id="install" class="wrap">
+  <div class="eyebrow" data-i18n="inst.eyebrow">Get started in 30 seconds</div>
+  <h2 data-i18n="inst.title">Download, drag, done</h2>
+  <div class="steps">
+    <div class="step"><h3 data-i18n="inst.s1.t">Download the .dmg</h3><p data-i18n="inst.s1.d">Grab the latest signed &amp; notarized build. Apple Silicon, macOS 14 or newer.</p></div>
+    <div class="step"><h3 data-i18n="inst.s2.t">Drag to Applications</h3><p data-i18n-html="inst.s2.d">Open the disk image and drag <strong>Claude Monitor</strong> onto the Applications folder.</p></div>
+    <div class="step"><h3 data-i18n="inst.s3.t">Launch it</h3><p data-i18n="inst.s3.d">Double-click to open. It lives in your menu bar — click the glyph to see everything.</p></div>
+  </div>
+  <div class="install-cta">
+    <a class="btn btn-primary" id="dl-main" href="https://github.com/YuriS5N/claude-monitor/releases/latest/download/ClaudeMonitor.dmg">
+      <svg class="os-ico" viewBox="0 0 16 16" fill="currentColor"><path d="M11.18 0c.08.9-.28 1.79-.83 2.43-.55.64-1.45 1.14-2.33 1.07-.1-.87.32-1.78.84-2.36C9.42.57 10.38.07 11.18 0zM13.9 11.6c-.35.8-.51 1.16-.96 1.87-.62.99-1.5 2.23-2.58 2.24-.96.01-1.21-.63-2.51-.62-1.3 0-1.57.63-2.53.63-1.08.01-1.91-1.11-2.53-2.1C1.03 10.86.84 7.6 1.9 5.86c.75-1.24 1.94-1.97 3.06-1.97 1.14 0 1.86.63 2.8.63.91 0 1.47-.63 2.79-.63 1 0 2.06.55 2.81 1.49-2.47 1.35-2.07 4.88.54 6.22z"/></svg>
+      <span data-i18n="inst.dl">Download Claude Monitor</span>
+    </a>
+    <p class="install-alt" data-i18n-html="inst.alt">Prefer to build from source? <a href="https://github.com/YuriS5N/claude-monitor#install--build" target="_blank" rel="noopener">Clone the repo and run <code>./build.sh</code></a>.</p>
+  </div>
+</section>
+
+<!-- ══════════ SUPPORT / DONATE ══════════ -->
+<section id="support" class="donate">
+  <div class="wrap">
+    <div class="donate-box">
+      <div class="coffee-emoji">☕</div>
+      <div class="eyebrow" data-i18n="don.eyebrow">Support the project</div>
+      <h2 data-i18n="don.title">Like it? Buy me a coffee</h2>
+      <p class="sub" style="margin-left:auto;margin-right:auto" data-i18n="don.sub">Claude Monitor is free and open source. If it saves you a trip to the terminal, a small tip helps me keep building and maintaining it. Every bit is appreciated. 🙏</p>
+      <div class="tiers" id="tiers">
+        <a class="tier" data-tier="coffee" target="_blank" rel="noopener"><div class="t-emoji">☕</div><div class="t-name" data-i18n="don.t1">Coffee</div><div class="t-amt">$3</div></a>
+        <a class="tier" data-tier="snack" target="_blank" rel="noopener"><div class="t-emoji">🍕</div><div class="t-name" data-i18n="don.t2">Snack</div><div class="t-amt">$5</div></a>
+        <a class="tier" data-tier="generous" target="_blank" rel="noopener"><div class="t-emoji">🎉</div><div class="t-name" data-i18n="don.t3">Generous</div><div class="t-amt">$10</div></a>
+        <a class="tier" data-tier="custom" target="_blank" rel="noopener"><div class="t-emoji">✏️</div><div class="t-name" data-i18n="don.t4">Your choice</div><div class="t-amt" data-i18n="don.t4amt">any amount</div></a>
+      </div>
+      <p class="donate-note">
+        <svg width="14" height="14" viewBox="0 0 16 16" fill="currentColor"><path d="M4 6V4.5a4 4 0 118 0V6h.5A1.5 1.5 0 0114 7.5v6A1.5 1.5 0 0112.5 15h-9A1.5 1.5 0 012 13.5v-6A1.5 1.5 0 013.5 6H4zm2-1.5V6h4V4.5a2 2 0 10-4 0z"/></svg>
+        <span data-i18n="don.note">Secure one-time payment via Stripe. No account required.</span>
+      </p>
+    </div>
+  </div>
+</section>
+
+<!-- ══════════ FOOTER ══════════ -->
+<footer>
+  <div class="wrap">
+    <div class="foot-links">
+      <a href="https://github.com/YuriS5N/claude-monitor" target="_blank" rel="noopener">GitHub</a>
+      <a href="https://github.com/YuriS5N/claude-monitor#readme" target="_blank" rel="noopener" data-i18n="foot.docs">Documentation</a>
+      <a href="https://github.com/YuriS5N/claude-monitor/blob/main/LICENSE" target="_blank" rel="noopener" data-i18n="foot.license">MIT License</a>
+      <a href="#top" data-i18n="foot.top">Back to top</a>
+    </div>
+    <p data-i18n-html="foot.made">Built with <span class="heart">♥</span> by Yuri Gomes de Abreu · Swift · SwiftUI · zero dependencies</p>
+    <p style="margin-top:6px" data-i18n="foot.disclaimer">Not affiliated with Anthropic. “Claude” is a trademark of Anthropic, PBC.</p>
+  </div>
+</footer>
+
+<script>
+/* ─── Stripe payment links (preenchidos após criação na conta ELA NA DEIS) ─── */
+const DONATE = {
+  coffee:   "https://donate.stripe.com/6oU14o8RefjYfD30AxcAo05",
+  snack:    "https://donate.stripe.com/28EfZi0kI1t81Md6YVcAo06",
+  generous: "https://donate.stripe.com/5kQ3cwgjG7Rw3Ul973cAo07",
+  custom:   "https://donate.stripe.com/dRmfZi5F27Rw8aBfvrcAo08"
+};
+
+/* ─── i18n (EN / PT / ES / FR) ─── */
+const I18N = {
+  en:{
+    "nav.features":"Features","nav.how":"How it works","nav.install":"Install","nav.support":"Support","nav.download":"Download",
+    "hero.badge":"Free · Open source · Native macOS",
+    "hero.title":"Your Claude Code limits, <span class='accent'>right in the menu bar.</span>",
+    "hero.lead":"A native macOS menu-bar app that surfaces your Claude Code usage at a glance — no terminal, no telemetry. Real data, straight from Anthropic.",
+    "hero.cta1":"Download for macOS","hero.cta2":"View source on GitHub",
+    "hero.req":"Apple Silicon · macOS 14+ · signed & notarized · ~1.3 MB",
+    "feat.eyebrow":"Everything at a glance","feat.title":"Your whole Claude Code picture, in one popover",
+    "feat.f1.t":"5-hour session","feat.f1.d":"Percent of the rolling 5-hour window used, with a time-vs-usage pace marker and a countdown to reset.",
+    "feat.f2.t":"Weekly (7-day)","feat.f2.d":"The same for the rolling 7-day window — pace marker and reset countdown, so you never get surprised.",
+    "feat.f3.t":"Today","feat.f3.d":"Message count for the day and the list of projects you actually touched.",
+    "feat.f4.t":"7-day chart","feat.f4.d":"Messages per day as a bar chart, colored green / orange / red relative to your weekly average.",
+    "feat.f5.t":"Tokens by model","feat.f5.d":"A clean breakdown of your token usage across Opus, Sonnet and Haiku.",
+    "feat.f6.t":"Active sessions","feat.f6.d":"Every running Claude Code session with its status (busy / idle) and per-session memory.",
+    "how.eyebrow":"Under the hood","how.title":"Real data. Your own login. Nothing leaves your Mac.",
+    "how.h1":"Straight from Anthropic","how.d1":"Every 5 minutes it makes one tiny 1-token Haiku call and reads the official <code>anthropic-ratelimit-*</code> response headers. These limits are unified across your whole account.",
+    "how.h2":"Uses your existing auth","how.d2":"It reads the OAuth token that Claude Code already stores in your macOS Keychain. Nothing to paste, nothing to configure — Claude Code keeps it refreshed.",
+    "how.h3":"100% local & private","how.d3":"Reads only your local <code>~/.claude</code> files for today's activity, the chart and sessions. No telemetry, no analytics, no third parties.",
+    "how.privacy":"<strong>Honest note.</strong> Claude Monitor needs an active Claude Code / Anthropic login on your machine — it does nothing without one. The periodic 1-token call has a tiny but non-zero cost (a few input tokens every 5 minutes). That's the only network call it ever makes.",
+    "inst.eyebrow":"Get started in 30 seconds","inst.title":"Download, drag, done",
+    "inst.s1.t":"Download the .dmg","inst.s1.d":"Grab the latest signed & notarized build. Apple Silicon, macOS 14 or newer.",
+    "inst.s2.t":"Drag to Applications","inst.s2.d":"Open the disk image and drag <strong>Claude Monitor</strong> onto the Applications folder.",
+    "inst.s3.t":"Launch it","inst.s3.d":"Double-click to open. It lives in your menu bar — click the glyph to see everything.",
+    "inst.dl":"Download Claude Monitor",
+    "inst.alt":"Prefer to build from source? <a href='https://github.com/YuriS5N/claude-monitor#install--build' target='_blank' rel='noopener'>Clone the repo and run <code>./build.sh</code></a>.",
+    "don.eyebrow":"Support the project","don.title":"Like it? Buy me a coffee",
+    "don.sub":"Claude Monitor is free and open source. If it saves you a trip to the terminal, a small tip helps me keep building and maintaining it. Every bit is appreciated. 🙏",
+    "don.t1":"Coffee","don.t2":"Snack","don.t3":"Generous","don.t4":"Your choice","don.t4amt":"any amount",
+    "don.note":"Secure one-time payment via Stripe. No account required.",
+    "foot.docs":"Documentation","foot.license":"MIT License","foot.top":"Back to top",
+    "foot.made":"Built with <span class='heart'>♥</span> by Yuri Gomes de Abreu · Swift · SwiftUI · zero dependencies",
+    "foot.disclaimer":"Not affiliated with Anthropic. “Claude” is a trademark of Anthropic, PBC."
+  },
+  pt:{
+    "nav.features":"Recursos","nav.how":"Como funciona","nav.install":"Instalar","nav.support":"Apoiar","nav.download":"Baixar",
+    "hero.badge":"Gratuito · Código aberto · Nativo pra macOS",
+    "hero.title":"Seus limites do Claude Code <span class='accent'>direto na menu bar.</span>",
+    "hero.lead":"Um app nativo de macOS que mostra seu uso do Claude Code num relance — sem terminal, sem telemetria. Dados reais, direto da Anthropic.",
+    "hero.cta1":"Baixar para macOS","hero.cta2":"Ver código no GitHub",
+    "hero.req":"Apple Silicon · macOS 14+ · assinado e notarizado · ~1,3 MB",
+    "feat.eyebrow":"Tudo num relance","feat.title":"Todo o seu Claude Code num único popover",
+    "feat.f1.t":"Sessão de 5h","feat.f1.d":"Percentual da janela contínua de 5 horas usado, com marcador de ritmo (tempo × uso) e contagem até o reset.",
+    "feat.f2.t":"Semanal (7 dias)","feat.f2.d":"O mesmo para a janela contínua de 7 dias — marcador de ritmo e contagem até o reset, sem sustos.",
+    "feat.f3.t":"Hoje","feat.f3.d":"Contagem de mensagens do dia e a lista dos projetos que você realmente tocou.",
+    "feat.f4.t":"Gráfico de 7 dias","feat.f4.d":"Mensagens por dia em barras, coloridas de verde / laranja / vermelho conforme sua média semanal.",
+    "feat.f5.t":"Tokens por modelo","feat.f5.d":"Um detalhamento limpo do seu uso de tokens entre Opus, Sonnet e Haiku.",
+    "feat.f6.t":"Sessões ativas","feat.f6.d":"Cada sessão do Claude Code em execução, com status (ocupada / ociosa) e memória por sessão.",
+    "how.eyebrow":"Nos bastidores","how.title":"Dados reais. Seu próprio login. Nada sai do seu Mac.",
+    "how.h1":"Direto da Anthropic","how.d1":"A cada 5 minutos faz uma minúscula chamada Haiku de 1 token e lê os headers oficiais <code>anthropic-ratelimit-*</code>. Esses limites são unificados na conta inteira.",
+    "how.h2":"Usa o login que você já tem","how.d2":"Lê o token OAuth que o Claude Code já guarda no Keychain do macOS. Nada pra colar, nada pra configurar — o Claude Code mantém o refresh.",
+    "how.h3":"100% local e privado","how.d3":"Lê apenas seus arquivos locais <code>~/.claude</code> para a atividade do dia, o gráfico e as sessões. Sem telemetria, sem analytics, sem terceiros.",
+    "how.privacy":"<strong>Nota honesta.</strong> O Claude Monitor precisa de um login ativo do Claude Code / Anthropic na sua máquina — sem isso, ele não faz nada. A chamada periódica de 1 token tem um custo minúsculo, mas não-zero (alguns tokens de entrada a cada 5 minutos). É a única chamada de rede que ele faz.",
+    "inst.eyebrow":"Comece em 30 segundos","inst.title":"Baixe, arraste, pronto",
+    "inst.s1.t":"Baixe o .dmg","inst.s1.d":"Pegue a build mais recente, assinada e notarizada. Apple Silicon, macOS 14 ou mais novo.",
+    "inst.s2.t":"Arraste para Aplicativos","inst.s2.d":"Abra a imagem de disco e arraste o <strong>Claude Monitor</strong> para a pasta Aplicativos.",
+    "inst.s3.t":"Abra o app","inst.s3.d":"Dê dois cliques para abrir. Ele vive na sua menu bar — clique no glifo para ver tudo.",
+    "inst.dl":"Baixar o Claude Monitor",
+    "inst.alt":"Prefere compilar do código? <a href='https://github.com/YuriS5N/claude-monitor#install--build' target='_blank' rel='noopener'>Clone o repo e rode <code>./build.sh</code></a>.",
+    "don.eyebrow":"Apoie o projeto","don.title":"Curtiu? Me pague um café",
+    "don.sub":"O Claude Monitor é gratuito e de código aberto. Se ele te poupa uma ida ao terminal, uma pequena contribuição me ajuda a continuar mantendo e melhorando. Toda ajuda conta. 🙏",
+    "don.t1":"Café","don.t2":"Lanche","don.t3":"Generoso","don.t4":"Você escolhe","don.t4amt":"qualquer valor",
+    "don.note":"Pagamento único e seguro via Stripe. Sem precisar de conta.",
+    "foot.docs":"Documentação","foot.license":"Licença MIT","foot.top":"Voltar ao topo",
+    "foot.made":"Feito com <span class='heart'>♥</span> por Yuri Gomes de Abreu · Swift · SwiftUI · zero dependências",
+    "foot.disclaimer":"Sem vínculo com a Anthropic. “Claude” é marca da Anthropic, PBC."
+  },
+  es:{
+    "nav.features":"Funciones","nav.how":"Cómo funciona","nav.install":"Instalar","nav.support":"Apoyar","nav.download":"Descargar",
+    "hero.badge":"Gratis · Código abierto · Nativo para macOS",
+    "hero.title":"Tus límites de Claude Code <span class='accent'>en la barra de menús.</span>",
+    "hero.lead":"Una app nativa de macOS que muestra tu uso de Claude Code de un vistazo — sin terminal, sin telemetría. Datos reales, directo de Anthropic.",
+    "hero.cta1":"Descargar para macOS","hero.cta2":"Ver código en GitHub",
+    "hero.req":"Apple Silicon · macOS 14+ · firmado y notarizado · ~1,3 MB",
+    "feat.eyebrow":"Todo de un vistazo","feat.title":"Todo tu Claude Code en un solo popover",
+    "feat.f1.t":"Sesión de 5 h","feat.f1.d":"Porcentaje usado de la ventana móvil de 5 horas, con un marcador de ritmo (tiempo × uso) y cuenta atrás hasta el reinicio.",
+    "feat.f2.t":"Semanal (7 días)","feat.f2.d":"Lo mismo para la ventana móvil de 7 días — marcador de ritmo y cuenta atrás, sin sorpresas.",
+    "feat.f3.t":"Hoy","feat.f3.d":"Número de mensajes del día y la lista de proyectos que realmente tocaste.",
+    "feat.f4.t":"Gráfico de 7 días","feat.f4.d":"Mensajes por día en barras, coloreadas verde / naranja / rojo según tu media semanal.",
+    "feat.f5.t":"Tokens por modelo","feat.f5.d":"Un desglose limpio de tu uso de tokens entre Opus, Sonnet y Haiku.",
+    "feat.f6.t":"Sesiones activas","feat.f6.d":"Cada sesión de Claude Code en ejecución, con su estado (ocupada / inactiva) y memoria por sesión.",
+    "how.eyebrow":"Por dentro","how.title":"Datos reales. Tu propio login. Nada sale de tu Mac.",
+    "how.h1":"Directo de Anthropic","how.d1":"Cada 5 minutos hace una diminuta llamada Haiku de 1 token y lee las cabeceras oficiales <code>anthropic-ratelimit-*</code>. Estos límites son unificados para toda la cuenta.",
+    "how.h2":"Usa tu login existente","how.d2":"Lee el token OAuth que Claude Code ya guarda en el Keychain de macOS. Nada que pegar, nada que configurar — Claude Code lo mantiene actualizado.",
+    "how.h3":"100% local y privado","how.d3":"Solo lee tus archivos locales <code>~/.claude</code> para la actividad del día, el gráfico y las sesiones. Sin telemetría, sin analíticas, sin terceros.",
+    "how.privacy":"<strong>Nota honesta.</strong> Claude Monitor necesita un login activo de Claude Code / Anthropic en tu equipo — sin él no hace nada. La llamada periódica de 1 token tiene un coste diminuto pero no nulo (unos pocos tokens de entrada cada 5 minutos). Es la única llamada de red que hace.",
+    "inst.eyebrow":"Empieza en 30 segundos","inst.title":"Descarga, arrastra, listo",
+    "inst.s1.t":"Descarga el .dmg","inst.s1.d":"Consigue la última versión firmada y notarizada. Apple Silicon, macOS 14 o superior.",
+    "inst.s2.t":"Arrastra a Aplicaciones","inst.s2.d":"Abre la imagen de disco y arrastra <strong>Claude Monitor</strong> a la carpeta Aplicaciones.",
+    "inst.s3.t":"Ábrelo","inst.s3.d":"Doble clic para abrir. Vive en tu barra de menús — pulsa el glifo para verlo todo.",
+    "inst.dl":"Descargar Claude Monitor",
+    "inst.alt":"¿Prefieres compilar desde el código? <a href='https://github.com/YuriS5N/claude-monitor#install--build' target='_blank' rel='noopener'>Clona el repo y ejecuta <code>./build.sh</code></a>.",
+    "don.eyebrow":"Apoya el proyecto","don.title":"¿Te gusta? Invítame un café",
+    "don.sub":"Claude Monitor es gratis y de código abierto. Si te ahorra una vuelta al terminal, una pequeña propina me ayuda a seguir manteniéndolo y mejorándolo. Se agradece cualquier aporte. 🙏",
+    "don.t1":"Café","don.t2":"Snack","don.t3":"Generoso","don.t4":"Tú eliges","don.t4amt":"cualquier cantidad",
+    "don.note":"Pago único y seguro con Stripe. Sin necesidad de cuenta.",
+    "foot.docs":"Documentación","foot.license":"Licencia MIT","foot.top":"Volver arriba",
+    "foot.made":"Hecho con <span class='heart'>♥</span> por Yuri Gomes de Abreu · Swift · SwiftUI · cero dependencias",
+    "foot.disclaimer":"Sin afiliación con Anthropic. “Claude” es una marca de Anthropic, PBC."
+  },
+  fr:{
+    "nav.features":"Fonctions","nav.how":"Comment ça marche","nav.install":"Installer","nav.support":"Soutenir","nav.download":"Télécharger",
+    "hero.badge":"Gratuit · Open source · Natif macOS",
+    "hero.title":"Vos limites Claude Code <span class='accent'>dans la barre de menus.</span>",
+    "hero.lead":"Une app macOS native qui affiche votre usage de Claude Code d'un coup d'œil — sans terminal, sans télémétrie. Des données réelles, directement d'Anthropic.",
+    "hero.cta1":"Télécharger pour macOS","hero.cta2":"Voir le code sur GitHub",
+    "hero.req":"Apple Silicon · macOS 14+ · signé et notarisé · ~1,3 Mo",
+    "feat.eyebrow":"Tout d'un coup d'œil","feat.title":"Tout votre Claude Code dans un seul popover",
+    "feat.f1.t":"Session de 5 h","feat.f1.d":"Pourcentage utilisé de la fenêtre glissante de 5 heures, avec un repère de rythme (temps × usage) et un compte à rebours jusqu'au reset.",
+    "feat.f2.t":"Hebdo (7 jours)","feat.f2.d":"Idem pour la fenêtre glissante de 7 jours — repère de rythme et compte à rebours, sans surprise.",
+    "feat.f3.t":"Aujourd'hui","feat.f3.d":"Nombre de messages du jour et la liste des projets réellement touchés.",
+    "feat.f4.t":"Graphique 7 jours","feat.f4.d":"Messages par jour en barres, colorées vert / orange / rouge selon votre moyenne hebdomadaire.",
+    "feat.f5.t":"Tokens par modèle","feat.f5.d":"Une répartition claire de votre usage de tokens entre Opus, Sonnet et Haiku.",
+    "feat.f6.t":"Sessions actives","feat.f6.d":"Chaque session Claude Code en cours, avec son statut (occupée / inactive) et sa mémoire.",
+    "how.eyebrow":"Sous le capot","how.title":"Données réelles. Votre propre login. Rien ne quitte votre Mac.",
+    "how.h1":"Directement d'Anthropic","how.d1":"Toutes les 5 minutes, une minuscule requête Haiku d'1 token lit les en-têtes officiels <code>anthropic-ratelimit-*</code>. Ces limites sont unifiées sur tout le compte.",
+    "how.h2":"Utilise votre login existant","how.d2":"Il lit le token OAuth que Claude Code stocke déjà dans le Trousseau macOS. Rien à coller, rien à configurer — Claude Code le rafraîchit.",
+    "how.h3":"100% local et privé","how.d3":"Ne lit que vos fichiers locaux <code>~/.claude</code> pour l'activité du jour, le graphique et les sessions. Pas de télémétrie, pas d'analytics, aucun tiers.",
+    "how.privacy":"<strong>Note honnête.</strong> Claude Monitor a besoin d'un login Claude Code / Anthropic actif sur votre machine — sans ça, il ne fait rien. La requête périodique d'1 token a un coût minuscule mais non nul (quelques tokens d'entrée toutes les 5 minutes). C'est le seul appel réseau qu'il fait.",
+    "inst.eyebrow":"Prêt en 30 secondes","inst.title":"Téléchargez, glissez, terminé",
+    "inst.s1.t":"Téléchargez le .dmg","inst.s1.d":"Récupérez la dernière build signée et notarisée. Apple Silicon, macOS 14 ou plus récent.",
+    "inst.s2.t":"Glissez vers Applications","inst.s2.d":"Ouvrez l'image disque et glissez <strong>Claude Monitor</strong> dans le dossier Applications.",
+    "inst.s3.t":"Lancez-le","inst.s3.d":"Double-cliquez pour ouvrir. Il vit dans votre barre de menus — cliquez sur le glyphe pour tout voir.",
+    "inst.dl":"Télécharger Claude Monitor",
+    "inst.alt":"Vous préférez compiler ? <a href='https://github.com/YuriS5N/claude-monitor#install--build' target='_blank' rel='noopener'>Clonez le repo et lancez <code>./build.sh</code></a>.",
+    "don.eyebrow":"Soutenir le projet","don.title":"Ça vous plaît ? Offrez-moi un café",
+    "don.sub":"Claude Monitor est gratuit et open source. S'il vous évite un aller-retour au terminal, un petit pourboire m'aide à continuer de le maintenir et l'améliorer. Chaque geste compte. 🙏",
+    "don.t1":"Café","don.t2":"En-cas","don.t3":"Généreux","don.t4":"Au choix","don.t4amt":"montant libre",
+    "don.note":"Paiement unique et sécurisé via Stripe. Sans compte requis.",
+    "foot.docs":"Documentation","foot.license":"Licence MIT","foot.top":"Haut de page",
+    "foot.made":"Fait avec <span class='heart'>♥</span> par Yuri Gomes de Abreu · Swift · SwiftUI · zéro dépendance",
+    "foot.disclaimer":"Sans affiliation avec Anthropic. « Claude » est une marque d'Anthropic, PBC."
+  }
+};
+
+function applyLang(lang){
+  const dict = I18N[lang] || I18N.en;
+  document.documentElement.lang = lang;
+  document.querySelectorAll("[data-i18n]").forEach(el=>{
+    const k = el.getAttribute("data-i18n"); if(dict[k]!=null) el.textContent = dict[k];
+  });
+  document.querySelectorAll("[data-i18n-html]").forEach(el=>{
+    const k = el.getAttribute("data-i18n-html"); if(dict[k]!=null) el.innerHTML = dict[k];
+  });
+  document.querySelectorAll("#lang button").forEach(b=>
+    b.classList.toggle("active", b.dataset.lang===lang));
+  try{ localStorage.setItem("cm-lang", lang); }catch(e){}
+}
+function initLang(){
+  let stored=null; try{ stored=localStorage.getItem("cm-lang"); }catch(e){}
+  const nav=(navigator.language||"en").slice(0,2).toLowerCase();
+  applyLang(stored || (I18N[nav]?nav:"en"));
+}
+document.querySelectorAll("#lang button").forEach(b=>
+  b.addEventListener("click",()=>applyLang(b.dataset.lang)));
+
+/* Wire donation tiers to Stripe links (hide any not yet configured) */
+document.querySelectorAll("#tiers .tier").forEach(t=>{
+  const url = DONATE[t.dataset.tier];
+  if(url && !url.startsWith("__")){ t.href = url; }
+  else { t.style.display="none"; }
+});
+
+initLang();
+</script>
+</body>
+</html>
