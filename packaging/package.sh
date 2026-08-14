@@ -14,13 +14,16 @@
 # Sem (2) ele assina mas pula a notarização.
 #
 # Overrides por env: SIGN_ID, NOTARY_PROFILE, APP_VERSION
+#
+# Nota: rode num shell SEM sandbox. Sandboxado, o codesign não alcança a chave
+# privada no keychain e falha com "errSecInternalComponent".
 set -e
 cd "$(dirname "$0")"
 ROOT="$(cd .. && pwd)"
 
 APP_NAME="ClaudeMonitor"
 BUNDLE_ID="com.agape.claude-monitor"
-APP_VERSION="${APP_VERSION:-1.0.0}"
+APP_VERSION="${APP_VERSION:-1.0.1}"   # bumpe aqui ou passe APP_VERSION=x.y.z
 NOTARY_PROFILE="${NOTARY_PROFILE:-claude-monitor-notary}"
 
 DIST="$PWD/dist"
