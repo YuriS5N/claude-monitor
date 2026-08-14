@@ -72,6 +72,140 @@ struct RateLimits {
     var error: String? = nil
 }
 
+// MARK: - Token Scanner
+// "Tokens por Modelo" vinha do stats-cache.json, que o Claude Code só reescreve
+// quando o usuário abre `/usage` — congelava. Aqui varremos os transcripts em
+// ~/.claude/projects/**/*.jsonl e somamos os tokens dos últimos 7 dias.
+//
+// Duas coisas que a varredura ingênua erra:
+//  - o transcript grava a MESMA mensagem ~2x (streaming), então é obrigatório
+//    deduplicar por `message.id`, senão o total infla ~2,2x;
+//  - o bucket por dia tem que ser em hora LOCAL. Fatiar o ISO8601 dá dia UTC e
+//    joga tudo que é da noite para o dia seguinte (estamos em UTC negativo).
+//
+// É incremental: guarda o offset já lido de cada arquivo e só processa bytes
+// novos. Primeira passada ~1s sobre ~600MB; as seguintes são quase de graça.
+final class TokenScanner {
+    struct Tokens {
+        var input = 0, output = 0, cacheRead = 0, cacheCreate = 0
+        var total: Int { input + output + cacheRead + cacheCreate }
+    }
+
+    private var offsets: [String: UInt64] = [:]          // path -> bytes já lidos
+    private var daily: [String: [String: Tokens]] = [:]  // dia local -> modelo -> tokens
+    private var seenIds = Set<String>()                  // dedup global das mensagens
+    private var idsByDay: [String: [String]] = [:]       // p/ expirar seenIds junto com o dia
+
+    private static let usageMarker = Data("\"usage\"".utf8)
+    private let isoFrac = ISO8601DateFormatter()
+    private let isoPlain = ISO8601DateFormatter()
+    private let dayFmt = DateFormatter()
+
+    init() {
+        isoFrac.formatOptions = [.withInternetDateTime, .withFractionalSeconds]
+        isoPlain.formatOptions = [.withInternetDateTime]
+        dayFmt.dateFormat = "yyyy-MM-dd"
+    }
+
+    /// Varre o que mudou e devolve os totais por modelo na janela.
+    func scan(home: URL, windowDays: Int = 7) -> [String: Tokens] {
+        let cal = Calendar.current
+        let cutoff = cal.date(byAdding: .day, value: -(windowDays - 1),
+                              to: cal.startOfDay(for: Date())) ?? Date()
+        let projects = home.appending(path: ".claude/projects")
+        let keys: [URLResourceKey] = [.contentModificationDateKey, .fileSizeKey]
+
+        var live = Set<String>()
+        if let walker = FileManager.default.enumerator(at: projects, includingPropertiesForKeys: keys) {
+            for case let url as URL in walker where url.pathExtension == "jsonl" {
+                guard let v = try? url.resourceValues(forKeys: Set(keys)),
+                      let mtime = v.contentModificationDate,
+                      let size = v.fileSize else { continue }
+                let path = url.path
+                live.insert(path)
+                // Transcript é append-only: se não foi escrito na janela, não
+                // pode conter entradas da janela. Nem abrimos o arquivo.
+                guard mtime >= cutoff else { continue }
+                var offset = offsets[path] ?? 0
+                if UInt64(size) < offset { offset = 0 }  // truncado ou rotacionado
+                guard UInt64(size) > offset else { continue }
+                offsets[path] = ingest(url: url, from: offset, upTo: UInt64(size))
+            }
+        }
+        offsets = offsets.filter { live.contains($0.key) }
+        prune(before: cutoff)
+        return totals(since: cutoff)
+    }
+
+    /// Lê [start, end) em blocos e devolve o novo offset, sempre parado no
+    /// último `\n` — a cauda parcial de um append em curso é relida depois.
+    private func ingest(url: URL, from start: UInt64, upTo end: UInt64) -> UInt64 {
+        guard let fh = try? FileHandle(forReadingFrom: url) else { return start }
+        defer { try? fh.close() }
+        do { try fh.seek(toOffset: start) } catch { return start }
+
+        var consumed = start
+        var carry = Data()
+        let chunkSize: UInt64 = 4 << 20
+        while consumed < end {
+            let want = Int(min(chunkSize, end - consumed))
+            guard let chunk = try? fh.read(upToCount: want), !chunk.isEmpty else { break }
+            consumed += UInt64(chunk.count)
+            var parts = (carry + chunk).split(separator: 0x0A, omittingEmptySubsequences: false)
+            carry = Data(parts.removeLast())  // última fatia = linha incompleta
+            for part in parts { ingest(line: part) }
+        }
+        return consumed - UInt64(carry.count)
+    }
+
+    private func ingest(line: Data.SubSequence) {
+        // Só ~1/3 das linhas tem usage; a checagem de bytes evita o JSON parse.
+        guard line.count > 40, line.range(of: Self.usageMarker) != nil else { return }
+        guard let obj = try? JSONSerialization.jsonObject(with: Data(line)) as? [String: Any],
+              let msg = obj["message"] as? [String: Any],
+              let usage = msg["usage"] as? [String: Any],
+              let id = msg["id"] as? String,
+              !seenIds.contains(id),
+              let stamp = obj["timestamp"] as? String,
+              let date = isoFrac.date(from: stamp) ?? isoPlain.date(from: stamp) else { return }
+
+        seenIds.insert(id)
+        let day = dayFmt.string(from: Calendar.current.startOfDay(for: date))
+        idsByDay[day, default: []].append(id)
+
+        let model = msg["model"] as? String ?? "unknown"
+        var t = daily[day]?[model] ?? Tokens()
+        t.input       += usage["input_tokens"] as? Int ?? 0
+        t.output      += usage["output_tokens"] as? Int ?? 0
+        t.cacheRead   += usage["cache_read_input_tokens"] as? Int ?? 0
+        t.cacheCreate += usage["cache_creation_input_tokens"] as? Int ?? 0
+        daily[day, default: [:]][model] = t
+    }
+
+    private func prune(before cutoff: Date) {
+        let oldest = dayFmt.string(from: cutoff)  // "yyyy-MM-dd" ordena cronologicamente
+        for (day, ids) in idsByDay where day < oldest {
+            for id in ids { seenIds.remove(id) }
+            idsByDay[day] = nil
+            daily[day] = nil
+        }
+    }
+
+    private func totals(since cutoff: Date) -> [String: Tokens] {
+        let oldest = dayFmt.string(from: cutoff)
+        var out: [String: Tokens] = [:]
+        for (day, models) in daily where day >= oldest {
+            for (model, t) in models {
+                var acc = out[model] ?? Tokens()
+                acc.input += t.input; acc.output += t.output
+                acc.cacheRead += t.cacheRead; acc.cacheCreate += t.cacheCreate
+                out[model] = acc
+            }
+        }
+        return out
+    }
+}
+
 // MARK: - View Model
 class VM: ObservableObject {
     struct DayBar: Identifiable {
@@ -125,23 +259,28 @@ class VM: ObservableObject {
     private var apiTimer: Timer?
     /// Serviço do Keychain que rendeu um token válido na última leitura.
     private var cachedKeychainService: String?
+    private let tokenScanner = TokenScanner()
+    private var isScanning = false
 
     init() {
         loadLocalData()
         fetchRateLimits()
+        scanTokens()
         // Stats locais: refresh a cada 30s
         statsTimer = Timer.scheduledTimer(withTimeInterval: 30, repeats: true) { [weak self] _ in
             DispatchQueue.main.async { self?.loadLocalData() }
         }
-        // Rate limits via API: refresh a cada 5min
+        // Rate limits via API + varredura de tokens: a cada 5min
         apiTimer = Timer.scheduledTimer(withTimeInterval: 300, repeats: true) { [weak self] _ in
             self?.fetchRateLimits()
+            self?.scanTokens()
         }
     }
 
     func refresh() {
         loadLocalData()
         fetchRateLimits()
+        scanTokens()
     }
 
     // Deterministic, fixed sample data for `--snapshot` mode.
@@ -390,7 +529,6 @@ class VM: ObservableObject {
     func loadLocalData() {
         let stats = loadJSON(home.appending(path: ".claude/stats-cache.json"), as: ClaudeStats.self)
         loadHistory()
-        loadModels(stats)
         loadSessions()
         loadTotals(stats)
         lastUpdate = Date()
@@ -466,27 +604,28 @@ class VM: ObservableObject {
         todayPct = weekAvg > 0 ? Double(todayMsgs) / weekAvg * 100 : 0
     }
 
-    private func loadModels(_ stats: ClaudeStats?) {
-        // O stats-cache só é regravado quando o usuário abre `/usage`. Se estiver
-        // velho, mostramos a data em vez de fingir que o número é de hoje.
-        statsStaleDate = ""
-        if let last = stats?.lastComputedDate {
-            let fmt = DateFormatter(); fmt.dateFormat = "yyyy-MM-dd"
-            if let d = fmt.date(from: last),
-               d < Calendar.current.startOfDay(for: Date()) {
-                let out = DateFormatter(); out.dateFormat = "dd/MM"
-                statsStaleDate = out.string(from: d)
+    /// Varre os transcripts em background e publica os tokens dos últimos 7 dias.
+    /// A primeira passada custa ~1s; as seguintes só leem os bytes novos.
+    func scanTokens() {
+        guard !isScanning else { return }
+        isScanning = true
+        DispatchQueue.global(qos: .utility).async { [weak self] in
+            guard let self = self else { return }
+            let usage = self.tokenScanner.scan(home: self.home)
+            let allTotal = usage.values.reduce(0) { $0 + $1.total }
+            let rows: [ModelRow] = usage.compactMap { name, u in
+                guard u.total > 0 else { return nil }  // descarta "<synthetic>" e afins
+                let short = name.replacingOccurrences(of: "claude-", with: "")
+                    .components(separatedBy: "-202").first ?? name
+                return ModelRow(id: name, name: short, input: u.input, output: u.output,
+                                cache: u.cacheRead + u.cacheCreate, total: u.total,
+                                pct: allTotal > 0 ? Double(u.total) / Double(allTotal) * 100 : 0)
+            }.sorted { $0.total > $1.total }
+            DispatchQueue.main.async {
+                self.models = rows
+                self.isScanning = false
             }
         }
-        guard let usage = stats?.modelUsage else { models = []; return }
-        let allTotal = usage.values.reduce(0) { $0 + $1.total }
-        models = usage.compactMap { name, u in
-            guard u.total > 0 else { return nil }
-            let short = name.replacingOccurrences(of: "claude-", with: "").components(separatedBy: "-202").first ?? name
-            return ModelRow(id: name, name: short, input: u.inputTokens, output: u.outputTokens,
-                          cache: u.cacheReadInputTokens, total: u.total,
-                          pct: allTotal > 0 ? Double(u.total) / Double(allTotal) * 100 : 0)
-        }.sorted { $0.total > $1.total }
     }
 
     private func loadSessions() {
@@ -560,6 +699,17 @@ class VM: ObservableObject {
 
     private func loadTotals(_ stats: ClaudeStats?) {
         totalMsgs = stats?.totalMessages ?? 0; totalSess = stats?.totalSessions ?? 0
+        // Os totais históricos ainda saem do stats-cache, que o Claude Code só
+        // regrava quando o usuário abre `/usage`. Se estiver velho, mostramos a
+        // data em vez de fingir que o número é de hoje.
+        statsStaleDate = ""
+        if let last = stats?.lastComputedDate {
+            let fmt = DateFormatter(); fmt.dateFormat = "yyyy-MM-dd"
+            if let d = fmt.date(from: last), d < Calendar.current.startOfDay(for: Date()) {
+                let out = DateFormatter(); out.dateFormat = "dd/MM"
+                statsStaleDate = out.string(from: d)
+            }
+        }
         if let fs = stats?.firstSessionDate {
             let fmt = ISO8601DateFormatter(); fmt.formatOptions = [.withInternetDateTime, .withFractionalSeconds]
             if let d = fmt.date(from: fs) {
@@ -775,10 +925,7 @@ struct ContentView: View {
                 Image(systemName: "number").foregroundColor(.purple)
                 Text("Tokens por Modelo").font(.subheadline.bold())
                 Spacer()
-                if !vm.statsStaleDate.isEmpty {
-                    Text("até \(vm.statsStaleDate)")
-                        .font(.system(size: 9)).foregroundColor(.secondary)
-                }
+                Text("7 dias").font(.system(size: 9)).foregroundColor(.secondary)
             }
             ForEach(vm.models.prefix(4)) { m in
                 HStack {
