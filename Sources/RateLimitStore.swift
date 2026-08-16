@@ -148,4 +148,16 @@ final class RateLimitStore {
     func completedWeeklyPeaks(tier: String?) -> [WindowPeak] {
         peaks(.sevenDay, tier: tier).filter(\.isComplete)
     }
+
+    /// Contas distintas vistas na série. Mais de uma significa que o Claude Code
+    /// trocou a conta ativa no meio do caminho — a análise precisa dizer isso, ou
+    /// o usuário lê o limite de uma conta achando que é o da outra.
+    func observedTiers() -> [String] {
+        Array(Set(load().map(\.tier).filter { !$0.isEmpty })).sorted()
+    }
+
+    /// Momento da última amostra de um tier — para avisar quando a série esfriou.
+    func lastSeen(tier: String) -> Date? {
+        load().last { $0.tier == tier }.map { Date(timeIntervalSince1970: $0.t) }
+    }
 }

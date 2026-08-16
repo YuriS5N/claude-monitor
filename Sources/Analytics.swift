@@ -270,6 +270,126 @@ enum PlanAdvisor {
     }
 }
 
+// MARK: - Aproveitamento da cota
+//
+// "Usei tudo o que paguei?" é uma pergunta sobre COTA CONSUMIDA (% do limite), não
+// sobre valor. São coisas diferentes: dá para ter um retorno de 50x em dinheiro e
+// mesmo assim desperdiçar metade da cota — e é justamente esse cruzamento que diz
+// se cabe descer de plano.
+//
+// A janela semanal tem cadência fixa de 7 dias (medido: resets em 15/ago 04:00 e
+// 22/ago 04:00), então as fronteiras das semanas passadas são deriváveis. O que
+// falta é o mapa custo → utilização, e esse a gente CALIBRA com as janelas que
+// foram de fato medidas. Duas calibrações independentes de semanas diferentes
+// deram US$ 14,3 e US$ 16,3 por 1% de cota — 12% de diferença, bom o bastante
+// para estimar, longe de bom o bastante para afirmar.
+
+struct QuotaCalibration {
+    /// Quanto de custo-equivalente corresponde a 1% da cota semanal.
+    let dollarsPerPercent: Double
+    /// Quantas janelas medidas entraram na calibração.
+    let windows: Int
+}
+
+struct WeekQuota: Identifiable {
+    let start: Date
+    let end: Date
+    let cost: Double
+    /// Fração da cota semanal (0…1+).
+    let utilization: Double
+    /// `true` quando veio dos headers da API; `false` quando é estimativa calibrada.
+    let measured: Bool
+    /// A semana corrente ainda vai crescer.
+    let isPartial: Bool
+    var id: Date { start }
+}
+
+enum QuotaAnalysis {
+    static let weekSeconds: TimeInterval = 7 * 24 * 3600
+
+    /// Deriva a constante custo→cota a partir das janelas realmente medidas.
+    /// Para cada janela: pico de utilização observado ÷ custo acumulado até a
+    /// última amostra. Usa a mediana, que aguenta uma janela mal amostrada.
+    static func calibrate(store: RateLimitStore, db: UsageDatabase, tier: String?) -> QuotaCalibration? {
+        let events = costEvents(db)
+        var ratios: [Double] = []
+        for peak in store.peaks(.sevenDay, tier: tier) {
+            guard peak.peak > 0.02 else { continue }   // janela vazia não calibra nada
+            let end = peak.resetEpoch - peak.gapToReset  // instante da última amostra
+            let start = peak.resetEpoch - weekSeconds
+            let cost = costBetween(events, start, end)
+            guard cost > 0 else { continue }
+            ratios.append(cost / (peak.peak * 100))
+        }
+        guard !ratios.isEmpty else { return nil }
+        let sorted = ratios.sorted()
+        return QuotaCalibration(dollarsPerPercent: sorted[sorted.count / 2], windows: ratios.count)
+    }
+
+    /// Histórico semanal de aproveitamento. Semanas com medição usam o valor real;
+    /// as demais usam a estimativa calibrada e vêm marcadas como tal.
+    static func weeklyHistory(store: RateLimitStore, db: UsageDatabase, tier: String?,
+                              weeks: Int = 10) -> [WeekQuota] {
+        let peaks = store.peaks(.sevenDay, tier: tier)
+        // Âncora: qualquer reset conhecido define a grade semanal inteira.
+        guard let anchor = peaks.map(\.resetEpoch).max() else { return [] }
+        let calibration = calibrate(store: store, db: db, tier: tier)
+        let events = costEvents(db)
+        let measuredByReset = Dictionary(peaks.map { ($0.resetEpoch, $0) },
+                                         uniquingKeysWith: { a, _ in a })
+        let now = Date().timeIntervalSince1970
+
+        // Caminha a grade para trás a partir da âncora, pulando janelas futuras.
+        var out: [WeekQuota] = []
+        var reset = anchor
+        while reset - weekSeconds > now { reset -= weekSeconds }
+        for _ in 0..<weeks {
+            let start = reset - weekSeconds
+            guard start > 0 else { break }
+            let cost = costBetween(events, start, min(reset, now))
+            let measured = measuredByReset[reset]
+            let util: Double
+            if let measured, measured.peak > 0 {
+                util = measured.peak
+            } else if let calibration, calibration.dollarsPerPercent > 0 {
+                util = cost / calibration.dollarsPerPercent / 100
+            } else {
+                reset -= weekSeconds
+                continue
+            }
+            out.append(WeekQuota(
+                start: Date(timeIntervalSince1970: start),
+                end: Date(timeIntervalSince1970: reset),
+                cost: cost,
+                utilization: util,
+                measured: measured != nil && measured!.peak > 0,
+                isPartial: reset > now
+            ))
+            reset -= weekSeconds
+        }
+        // Semanas sem uso nenhum são "antes de começar", não semanas ociosas —
+        // mantê-las afundaria a média e mentiria sobre o aproveitamento.
+        return out.reversed().drop { $0.cost <= 0 }.map { $0 }
+    }
+
+    // Lista (instante, custo) ordenada, para somar custo em qualquer intervalo.
+    private static func costEvents(_ db: UsageDatabase) -> [(Double, Double)] {
+        // O banco agrega por dia, então distribuímos o custo do dia no meio-dia.
+        // Suficiente para janelas de uma semana; erra só nas bordas.
+        var out: [(Double, Double)] = []
+        for (day, models) in db.days {
+            guard let d = UsageSeries.parseDay(day) else { continue }
+            let noon = d.addingTimeInterval(12 * 3600).timeIntervalSince1970
+            out.append((noon, models.equivalentCost))
+        }
+        return out.sorted { $0.0 < $1.0 }
+    }
+
+    private static func costBetween(_ events: [(Double, Double)], _ a: Double, _ b: Double) -> Double {
+        events.reduce(0) { $1.0 >= a && $1.0 < b ? $0 + $1.1 : $0 }
+    }
+}
+
 // MARK: - Séries para os gráficos
 
 struct DayPoint: Identifiable {

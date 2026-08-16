@@ -53,6 +53,8 @@ struct AnalyticsView: View {
 
     var body: some View {
         TabView {
+            QuotaTab(vm: vm)
+                .tabItem { Label("Aproveitamento", systemImage: "gauge.with.needle") }
             PaidVsUsedTab(vm: vm)
                 .tabItem { Label("Pago vs. Utilizado", systemImage: "dollarsign.circle") }
             UsageTab(vm: vm)
@@ -64,6 +66,158 @@ struct AnalyticsView: View {
         }
         .padding(12)
         .frame(minWidth: 820, minHeight: 560)
+    }
+}
+
+// MARK: - Aba: Aproveitamento
+//
+// Responde "usei tudo o que paguei?" — que é sobre COTA CONSUMIDA, não sobre valor.
+// A aba "Pago vs. Utilizado" diz que o plano vale a pena; esta diz se sobra plano.
+
+struct QuotaTab: View {
+    @ObservedObject var vm: VM
+
+    private var tier: String? { vm.activeTier.isEmpty ? nil : vm.activeTier }
+
+    var body: some View {
+        let weeks = QuotaAnalysis.weeklyHistory(store: vm.rateLimitStore, db: vm.usageDB, tier: tier)
+        let closed = weeks.filter { !$0.isPartial }
+        let avg = closed.isEmpty ? 0 : closed.reduce(0) { $0 + $1.utilization } / Double(closed.count)
+        let peak = closed.map(\.utilization).max() ?? 0
+        let calibration = QuotaAnalysis.calibrate(store: vm.rateLimitStore, db: vm.usageDB, tier: tier)
+
+        return VStack(alignment: .leading, spacing: 16) {
+            gauges
+            headline(avg: avg, peak: peak, closed: closed.count)
+            weeklyChart(weeks)
+            footnote(calibration: calibration, weeks: weeks)
+            Spacer(minLength: 0)
+        }
+    }
+
+    // O agora: quanto da cota desta semana e desta sessão já foi.
+    private var gauges: some View {
+        HStack(spacing: 30) {
+            QuotaGauge(title: "Semana atual",
+                       value: vm.limits.sevenDayUtilization,
+                       caption: "reseta em \(timeUntil(vm.limits.sevenDayReset))")
+            QuotaGauge(title: "Sessão atual (5h)",
+                       value: vm.limits.fiveHourUtilization,
+                       caption: "reseta em \(timeUntil(vm.limits.fiveHourReset))")
+            Spacer()
+        }
+    }
+
+    private func headline(avg: Double, peak: Double, closed: Int) -> some View {
+        let price = vm.config.planHistory.last?.monthlyPrice ?? 0
+        let used = price * avg
+        return VStack(alignment: .leading, spacing: 6) {
+            if closed == 0 {
+                Text("Sem semanas fechadas ainda.").font(.title3.bold())
+            } else {
+                Text(String(format: "Nas últimas %d semanas você usou em média %.0f%% da cota, "
+                            + "com pico de %.0f%%.", closed, avg * 100, peak * 100))
+                    .font(.title3.bold())
+                Text(String(format: "Em dinheiro: dos US$ %.0f/mês que você paga, a média equivale "
+                            + "a aproveitar ~US$ %.0f e deixar ~US$ %.0f na mesa. "
+                            + "Mas é o PICO que decide se cabe um plano menor — não a média.",
+                            price, used, max(0, price - used)))
+                    .font(.callout).foregroundColor(.secondary)
+                    .fixedSize(horizontal: false, vertical: true)
+            }
+        }
+    }
+
+    private func weeklyChart(_ weeks: [WeekQuota]) -> some View {
+        Chart {
+            ForEach(weeks) { w in
+                BarMark(x: .value("Semana", w.start, unit: .weekOfYear),
+                        y: .value("Cota", w.utilization))
+                    .foregroundStyle(by: .value("Origem", w.measured ? "Medido" : "Estimado"))
+                    .opacity(w.isPartial ? 0.45 : 1)
+            }
+            RuleMark(y: .value("Cota", 1.0))
+                .foregroundStyle(.red)
+                .lineStyle(StrokeStyle(lineWidth: 1, dash: [5, 4]))
+        }
+        .chartForegroundStyleScale(["Medido": Color.blue, "Estimado": Color.blue.opacity(0.45)])
+        .chartYAxis {
+            AxisMarks { v in
+                AxisGridLine()
+                AxisValueLabel {
+                    if let d = v.as(Double.self) { Text("\(Int(d * 100))%") }
+                }
+            }
+        }
+        .chartXAxis {
+            AxisMarks(values: .stride(by: .weekOfYear)) { _ in
+                AxisGridLine()
+                AxisValueLabel(format: .dateTime.day().month(.abbreviated))
+            }
+        }
+        .chartLegend(position: .bottom)
+        .frame(minHeight: 200)
+        .overlay(alignment: .topTrailing) {
+            Text("linha vermelha = 100% da cota")
+                .font(.caption2).foregroundColor(.red)
+        }
+    }
+
+    @ViewBuilder
+    private func footnote(calibration: QuotaCalibration?, weeks: [WeekQuota]) -> some View {
+        VStack(alignment: .leading, spacing: 6) {
+            if let calibration {
+                Text(String(format: "Semanas “estimadas” vêm do custo-equivalente convertido em "
+                            + "cota (US$ %.0f por 1%%), calibrado com %d semana(s) que a API "
+                            + "realmente mediu. É estimativa, não leitura — a barra vira "
+                            + "“medido” conforme as semanas passam com o monitor rodando.",
+                            calibration.dollarsPerPercent, calibration.windows))
+                    .font(.caption2).foregroundColor(.secondary)
+                    .fixedSize(horizontal: false, vertical: true)
+            }
+            // Duas contas na série significa que o Claude Code trocou a conta ativa;
+            // sem dizer isso, o usuário lê o limite de uma achando que é o da outra.
+            let tiers = vm.rateLimitStore.observedTiers()
+            if tiers.count > 1 {
+                let others = tiers.filter { $0 != vm.activeTier }
+                    .map { $0.replacingOccurrences(of: "default_claude_", with: "") }
+                Label("O monitor viu mais de uma conta (\(others.joined(separator: ", "))). "
+                      + "Os números acima são só da conta ativa; o uso feito nas outras não "
+                      + "aparece aqui.", systemImage: "person.2.badge.gearshape")
+                    .font(.caption2).foregroundColor(.orange)
+                    .fixedSize(horizontal: false, vertical: true)
+            }
+        }
+    }
+}
+
+/// Medidor de cota: a leitura de relance de "quanto do que paguei já usei".
+struct QuotaGauge: View {
+    let title: String
+    let value: Double
+    let caption: String
+
+    var body: some View {
+        VStack(alignment: .leading, spacing: 6) {
+            Text(title).font(.caption).foregroundColor(.secondary)
+            HStack(alignment: .firstTextBaseline, spacing: 6) {
+                Text(String(format: "%.0f%%", value * 100))
+                    .font(.system(size: 34, weight: .bold, design: .rounded))
+                    .foregroundColor(utilizationColor(value))
+                Text("da cota").font(.caption).foregroundColor(.secondary)
+            }
+            // Barra própria em vez de ProgressView: precisa acomodar >100% e
+            // colorir pela faixa de utilização.
+            GeometryReader { geo in
+                ZStack(alignment: .leading) {
+                    Capsule().fill(Color.secondary.opacity(0.18))
+                    Capsule().fill(utilizationColor(value))
+                        .frame(width: geo.size.width * min(max(value, 0), 1))
+                }
+            }
+            .frame(width: 210, height: 8)
+            Text(caption).font(.caption2).foregroundColor(.secondary)
+        }
     }
 }
 
