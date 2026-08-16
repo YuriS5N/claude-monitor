@@ -10,7 +10,7 @@ clang -c -O2 -o /tmp/claude-monitor-exceptioncatcher.o Sources/ExceptionCatcher.
 
 swiftc -parse-as-library -framework SwiftUI -framework AppKit -O \
     -import-objc-header Sources/ExceptionCatcher.h \
-    -o ClaudeMonitor Sources/ClaudeMonitor.swift /tmp/claude-monitor-exceptioncatcher.o
+    -o ClaudeMonitor Sources/*.swift /tmp/claude-monitor-exceptioncatcher.o
 
 echo "Build concluido: ./ClaudeMonitor"
 echo "Para iniciar: ./start.sh"

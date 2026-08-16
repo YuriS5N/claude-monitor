@@ -37,7 +37,7 @@ echo "→ [1/6] Compilando binário..."
 clang -c -O2 -o /tmp/claude-monitor-exceptioncatcher.o "$ROOT/Sources/ExceptionCatcher.m"
 swiftc -parse-as-library -framework SwiftUI -framework AppKit -O \
     -import-objc-header "$ROOT/Sources/ExceptionCatcher.h" \
-    -o "$DIST/$APP_NAME.bin" "$ROOT/Sources/ClaudeMonitor.swift" \
+    -o "$DIST/$APP_NAME.bin" "$ROOT"/Sources/*.swift \
     /tmp/claude-monitor-exceptioncatcher.o
 
 # ─── 2. Ícone ──────────────────────────────────────────────────────────────
