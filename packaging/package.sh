@@ -23,7 +23,7 @@ ROOT="$(cd .. && pwd)"
 
 APP_NAME="ClaudeMonitor"
 BUNDLE_ID="com.agape.claude-monitor"
-APP_VERSION="${APP_VERSION:-1.0.1}"   # bumpe aqui ou passe APP_VERSION=x.y.z
+APP_VERSION="${APP_VERSION:-1.1.0}"   # bumpe aqui ou passe APP_VERSION=x.y.z
 NOTARY_PROFILE="${NOTARY_PROFILE:-claude-monitor-notary}"
 
 DIST="$PWD/dist"
