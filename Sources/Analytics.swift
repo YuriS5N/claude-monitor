@@ -19,11 +19,15 @@ struct ClaudeAccount {
     static let defaultDir = FileManager.default.homeDirectoryForCurrentUser
         .appending(path: ".claude")
 
-    var keychainService: String {
+    /// Identidade estável da conta: os 8 hex do sha256 do caminho do config dir.
+    /// É a chave certa para filtrar a série histórica — `rateLimitTier` é só um
+    /// proxy que quebraria se duas contas estivessem no mesmo plano.
+    var id: String {
         let digest = SHA256.hash(data: Data(configDir.path.utf8))
-        let hex = digest.map { String(format: "%02x", $0) }.joined()
-        return "Claude Code-credentials-\(hex.prefix(8))"
+        return String(digest.map { String(format: "%02x", $0) }.joined().prefix(8))
     }
+
+    var keychainService: String { "Claude Code-credentials-\(id)" }
 
     /// E-mail da conta, lido do `.claude.json` do próprio diretório.
     var email: String? {
@@ -378,10 +382,10 @@ enum QuotaAnalysis {
     /// Deriva a constante custo→cota a partir das janelas realmente medidas.
     /// Para cada janela: pico de utilização observado ÷ custo acumulado até a
     /// última amostra. Usa a mediana, que aguenta uma janela mal amostrada.
-    static func calibrate(store: RateLimitStore, db: UsageDatabase, tier: String?) -> QuotaCalibration? {
+    static func calibrate(store: RateLimitStore, db: UsageDatabase, account: AccountFilter?) -> QuotaCalibration? {
         let events = costEvents(db)
         var ratios: [Double] = []
-        for peak in store.peaks(.sevenDay, tier: tier) {
+        for peak in store.peaks(.sevenDay, account: account) {
             // Utilização muito baixa amplifica qualquer erro de borda na divisão;
             // e uma janela saturada (>=99%) só diz "bateu no teto", não quanto de
             // demanda havia — o cost/util de lá subestimaria o custo por 1%.
@@ -399,12 +403,12 @@ enum QuotaAnalysis {
 
     /// Histórico semanal de aproveitamento. Semanas com medição usam o valor real;
     /// as demais usam a estimativa calibrada e vêm marcadas como tal.
-    static func weeklyHistory(store: RateLimitStore, db: UsageDatabase, tier: String?,
+    static func weeklyHistory(store: RateLimitStore, db: UsageDatabase, account: AccountFilter?,
                               weeks: Int = 10) -> [WeekQuota] {
-        let peaks = store.peaks(.sevenDay, tier: tier)
+        let peaks = store.peaks(.sevenDay, account: account)
         // Âncora: qualquer reset conhecido define a grade semanal inteira.
         guard let anchor = peaks.map(\.resetEpoch).max() else { return [] }
-        let calibration = calibrate(store: store, db: db, tier: tier)
+        let calibration = calibrate(store: store, db: db, account: account)
         let events = costEvents(db)
         let measuredByReset = Dictionary(peaks.map { ($0.resetEpoch, $0) },
                                          uniquingKeysWith: { a, _ in a })

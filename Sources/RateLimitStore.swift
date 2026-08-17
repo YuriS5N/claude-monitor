@@ -28,6 +28,22 @@ struct RateLimitSample: Codable {
     /// direta de ter chegado perto ou batido no teto — a utilização sozinha
     /// satura em 100% e não distingue "encostou" de "bateu e ficou bloqueado".
     var s7: String?
+    /// Identidade da conta (`ClaudeAccount.id`). É por aqui que a série é
+    /// filtrada; `tier` sozinho é proxy e colidiria com duas contas no mesmo plano.
+    var acct: String?
+}
+
+/// Qual conta considerar ao ler a série.
+struct AccountFilter {
+    let id: String
+    /// Casa as amostras gravadas antes de `acct` existir, pelo plano.
+    let legacyTier: String?
+
+    func matches(_ s: RateLimitSample) -> Bool {
+        if let acct = s.acct { return acct == id }
+        guard let legacyTier, !legacyTier.isEmpty else { return false }
+        return s.tier == legacyTier
+    }
 }
 
 /// Pico consolidado de uma janela.
@@ -126,11 +142,11 @@ final class RateLimitStore {
 
     /// Picos por janela, do mais recente para o mais antigo.
     ///
-    /// `tier` filtra pela conta: o monitor segue a conta de maior `expiresAt` e pode
-    /// alternar entre Max e Team sem avisar — misturar as duas contaminaria a série.
-    func peaks(_ kind: WindowKind, tier: String?) -> [WindowPeak] {
+    /// `account` filtra pela conta. Sem filtro, a série de duas contas se mistura e
+    /// uma semana da outra conta apareceria como semana sua.
+    func peaks(_ kind: WindowKind, account: AccountFilter?) -> [WindowPeak] {
         var grouped: [Double: [RateLimitSample]] = [:]
-        for s in load() where tier == nil || s.tier == tier {
+        for s in load() where account == nil || account!.matches(s) {
             let reset = kind == .fiveHour ? s.r5 : s.r7
             guard reset > 0 else { continue }
             grouped[reset, default: []].append(s)
@@ -149,8 +165,8 @@ final class RateLimitStore {
     }
 
     /// Janelas semanais já fechadas — a base da recomendação de plano.
-    func completedWeeklyPeaks(tier: String?) -> [WindowPeak] {
-        peaks(.sevenDay, tier: tier).filter(\.isComplete)
+    func completedWeeklyPeaks(account: AccountFilter?) -> [WindowPeak] {
+        peaks(.sevenDay, account: account).filter(\.isComplete)
     }
 
     /// Contas distintas vistas na série. Mais de uma significa que o Claude Code

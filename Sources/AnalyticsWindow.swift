@@ -77,14 +77,13 @@ struct AnalyticsView: View {
 struct QuotaTab: View {
     @ObservedObject var vm: VM
 
-    private var tier: String? { vm.activeTier.isEmpty ? nil : vm.activeTier }
 
     var body: some View {
-        let weeks = QuotaAnalysis.weeklyHistory(store: vm.rateLimitStore, db: vm.usageDB, tier: tier)
+        let weeks = QuotaAnalysis.weeklyHistory(store: vm.rateLimitStore, db: vm.usageDB, account: vm.accountFilter)
         let closed = weeks.filter { !$0.isPartial }
         let avg = closed.isEmpty ? 0 : closed.reduce(0) { $0 + $1.utilization } / Double(closed.count)
         let peak = closed.map(\.utilization).max() ?? 0
-        let calibration = QuotaAnalysis.calibrate(store: vm.rateLimitStore, db: vm.usageDB, tier: tier)
+        let calibration = QuotaAnalysis.calibrate(store: vm.rateLimitStore, db: vm.usageDB, account: vm.accountFilter)
 
         return VStack(alignment: .leading, spacing: 16) {
             gauges
@@ -151,6 +150,15 @@ struct QuotaTab: View {
                        value: vm.limits.fiveHourUtilization,
                        caption: "reseta em \(timeUntil(vm.limits.fiveHourReset))")
             Spacer()
+            // Com mais de uma conta na máquina, dizer QUAL está medida é parte do
+            // número — sem isso o usuário tem que perguntar.
+            VStack(alignment: .trailing, spacing: 2) {
+                Text("conta medida").font(.caption2).foregroundColor(.secondary)
+                Text(vm.config.account.email ?? "—")
+                    .font(.callout.weight(.medium))
+                Text(vm.config.account.configDir.lastPathComponent)
+                    .font(.caption2).foregroundColor(.secondary)
+            }
         }
     }
 
@@ -515,7 +523,7 @@ struct PlanTab: View {
     @ObservedObject var vm: VM
 
     var body: some View {
-        let peaks = vm.rateLimitStore.completedWeeklyPeaks(tier: vm.activeTier.isEmpty ? nil : vm.activeTier)
+        let peaks = vm.rateLimitStore.completedWeeklyPeaks(account: vm.accountFilter)
         let verdict = PlanAdvisor.evaluate(weeklyPeaks: peaks, current: vm.config.currentTier)
         // O veredito fica fixo no topo; só o histórico rola.
         return VStack(alignment: .leading, spacing: 16) {
@@ -592,7 +600,7 @@ struct PlanTab: View {
     }
 
     private var weeklyHistory: some View {
-        let peaks = vm.rateLimitStore.peaks(.sevenDay, tier: vm.activeTier.isEmpty ? nil : vm.activeTier)
+        let peaks = vm.rateLimitStore.peaks(.sevenDay, account: vm.accountFilter)
         return VStack(alignment: .leading, spacing: 8) {
             Text("Picos semanais observados").font(.subheadline.bold())
             if peaks.isEmpty {

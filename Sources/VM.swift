@@ -62,11 +62,20 @@ class VM: ObservableObject {
     let rateLimitStore = RateLimitStore()
     /// `rateLimitTier` da conta que respondeu por último — filtra a série histórica.
     @Published var activeTier = ""
+    /// Filtro de conta para a série histórica: identidade derivada do config dir,
+    /// com o tier como casamento das amostras gravadas antes do campo existir.
+    var accountFilter: AccountFilter {
+        AccountFilter(id: config.account.id, legacyTier: activeTier)
+    }
     /// Banco de uso completo, para a janela de Analytics.
     @Published var usageDB = UsageDatabase()
     @Published var config = ConfigStore.shared.config
 
     init() {
+        // Lê o tier da conta fixada de imediato — é leitura local do Keychain. Sem
+        // isso o filtro de conta fica vazio até a 1ª resposta da API, e a série da
+        // outra conta apareceria como se fosse desta.
+        activeTier = readOAuthToken()?.rateLimitTier ?? ""
         loadLocalData()
         fetchRateLimits()
         scanTokens()
@@ -253,7 +262,8 @@ class VM: ObservableObject {
                     tier: token.rateLimitTier ?? "",
                     sub: token.subscriptionType ?? "",
                     overage: result.overageStatus,
-                    s7: result.sevenDayStatus
+                    s7: result.sevenDayStatus,
+                    acct: self.config.account.id
                 ))
             }
 
