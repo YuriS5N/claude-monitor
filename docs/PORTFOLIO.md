@@ -14,22 +14,37 @@
 
 ## The problem
 
-Claude Code enforces rolling usage limits (a 5-hour window and a 7-day window). Hitting one
-mid-task is disruptive, and the only way to check your standing was to read HTTP response
-headers by hand. I wanted my usage — and how fast I was burning it — visible at a glance,
-without a terminal.
+Claude Code enforces usage limits on a 5-hour window and a 7-day window. Hitting one mid-task
+is disruptive, and the only way to check your standing was to read HTTP response headers by
+hand. I wanted my usage — and how fast I was burning it — visible at a glance, without a
+terminal.
+
+A second, harder question showed up once the first was solved: **am I on the right plan?** The
+subscription buys a quota that resets weekly and is billed monthly, the vendor exposes no
+history at all, and "value received" and "quota consumed" turn out to be different questions
+that can point in opposite directions. Answering that honestly drove most of the engineering
+below.
 
 ## The solution
 
-A menu-bar app that surfaces the whole picture in one native popover:
+A menu-bar app with two layers.
 
-- **5-hour & weekly usage** with a *pace marker* (time elapsed vs. usage) and reset countdown.
-- **Today** — messages sent and projects touched.
-- **7-day bar chart** colored against your weekly average.
-- **Tokens by model** (Opus / Sonnet / Haiku) and **active Claude Code sessions**.
+**At a glance** — a native popover: 5-hour and weekly usage with a *pace marker* (time elapsed
+vs. usage) and reset countdown, today's messages and projects, a 7-day chart colored against
+your weekly average, tokens by model, and active Claude Code sessions. The menu-bar title stays
+compact and adapts to how much room the menu bar has.
 
-The menu-bar title stays compact — a status glyph plus the current percentages — and adapts
-to how much room the menu bar has.
+**In depth** — an analytics window that answers the plan question:
+
+- **Quota utilization** — weekly consumption as bars, with dotted ceilings for the *other*
+  plans, so "would a cheaper tier have fit?" is a visual answer. Reconciled month by month,
+  since the limit resets weekly but the bill is monthly — and unused weekly quota never rolls
+  over, which is the point most people miss.
+- **Paid vs. actually used** — what the usage would have cost at pay-as-you-go API prices,
+  daily / monthly / cumulative, with trend and projection.
+- **Per session and per project** — sortable, with real active time rather than wall-clock span.
+- **A plan verdict** — derived from observed weekly peaks, and deliberately withheld until
+  there is enough data to be worth trusting.
 
 ---
 
@@ -41,15 +56,56 @@ minutes** and reads the `anthropic-ratelimit-unified-*` headers (utilization, re
 overage, fallback) off the HTTP response — the same unified limits Claude Code itself is bound
 by. A deliberate, documented trade-off: a few input tokens every 5 minutes for live data.
 
-### Zero-config auth via the macOS Keychain
-No login screen, nothing to paste. The app reads the OAuth token Claude Code already stores in
-the Keychain (`security find-generic-password -s "Claude Code-credentials"`), which Claude Code
-keeps refreshed. Auth "just works" because it reuses an existing trust boundary.
+### Zero-config auth via the macOS Keychain — and reverse-engineering multi-account
+No login screen, nothing to paste: the app reads the OAuth token Claude Code already stores in
+the Keychain and keeps refreshed. Auth "just works" because it reuses an existing trust boundary.
 
-### Native, dependency-free, single file
-The entire app is one Swift file compiled directly with `swiftc` — no Xcode project, no SPM,
-no third-party packages. `MenuBarExtra` + `NSApplicationDelegateAdaptor`, with
-`setActivationPolicy(.accessory)` to stay out of the Dock.
+That got interesting when Claude Code moved to **per-account credentials** with opaque service
+names like `Claude Code-credentials-022f5dfa`. The legacy entry stayed in place but with an
+empty token, so the app silently 401'd. Worse, my first fix — "use whichever token expires
+latest" — made the app hop to a different account whenever that one refreshed, so it reported
+the wrong account's limits.
+
+The real fix came from working out where the suffix comes from: it is
+**`sha256(<absolute path of the config directory>)[:8]`**. Since Claude Code separates accounts
+by `CLAUDE_CONFIG_DIR`, that makes account selection deterministic — pin a config directory and
+everything (credentials, transcripts, history, sessions) follows from it. Guessing became
+derivation.
+
+### Native, dependency-free
+No Xcode project, no SPM, no third-party packages — plain `swiftc` over `Sources/*.swift`.
+`MenuBarExtra` + `NSApplicationDelegateAdaptor` with `setActivationPolicy(.accessory)` to stay
+out of the Dock, plus a separate `NSWindow`/`NSHostingController` for the analytics view and
+Swift Charts for the graphs.
+
+### Measuring what the vendor doesn't expose
+The API returns your *current* rate-limit utilization and no history at all. The app records
+every poll, so the series it needs comes into existence over time — but that meant answering
+"did I use what I paid for?" with "ask me in three weeks", which is a bad product answer.
+
+Two measurements changed that. First, the weekly window turned out to run on a **fixed 7-day
+cadence**, so past week boundaries are derivable (the 5-hour window is anchored to first
+activity instead, and stays unreconstructable). Second, I had *rejected* estimating utilization
+from token cost after concluding the relationship was non-linear — and that conclusion was
+wrong: I had compared a **sliding** 5-hour peak against a **fixed**-window reading. Redone on
+the weekly windows, two independent calibrations landed within 12% of each other.
+
+So the app converts cost into quota using a ratio calibrated against the windows it actually
+measured, labels those weeks as estimates, and replaces them with real readings as weeks pass.
+The estimate is also honestly biased: a week that hits the ceiling stops spending, so cost
+under-states demand — which the UI says out loud instead of hiding.
+
+### Counting tokens correctly is mostly about knowing what to distrust
+Summing `usage` across transcripts naively over-counts by ~2.2×, because streaming writes each
+message about twice. Deduplicating by `message.id` fixes that — but the set has to span *files*,
+since forked sessions replay history into new transcripts (measured: 2.2% of IDs appear in more
+than one file). Bucketing by UTC day shifts every evening into tomorrow in a negative-offset
+timezone. Subagent transcripts live one directory deeper and a one-level glob misses 109 of
+them. And `sessionId` survives session resumes, so first-to-last span reports "1,000-hour
+sessions" until you sum only the gaps that look like work.
+
+Every one of those was found by re-implementing the same aggregation independently in Python and
+diffing the two — which is now the project's standing check for anything that produces a number.
 
 ### Resilience against a real crash
 After a macOS update, the app was dying to an **intermittent CoreText `NSException`** while
@@ -113,6 +169,9 @@ tier that isn't configured — so it degrades gracefully.
 |------|----------|
 | **Native macOS / Swift** | SwiftUI + AppKit menu-bar app, Swift/ObjC interop, `swiftc` build |
 | **Debugging depth** | Caught & neutralized an intermittent CoreText `NSException` |
+| **Reverse engineering** | Derived the per-account Keychain naming scheme (`sha256` of the config dir) from observation |
+| **Measurement rigor** | Every number cross-checked against an independent re-implementation; a wrong "non-linear" conclusion found and corrected |
+| **Statistical honesty** | Estimates labeled as estimates, known bias direction stated, verdicts gated on sample size |
 | **Product thinking** | Pace markers, adaptive title, honest cost disclosure, `--snapshot` assets |
 | **Distribution** | Developer ID signing, Apple notarization, `.dmg`, GitHub Releases |
 | **Web & design** | Self-contained multilingual landing page, brand-consistent icon by code |

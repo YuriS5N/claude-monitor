@@ -208,6 +208,8 @@
     <div class="fcard"><div class="fico">📊</div><h3 data-i18n="feat.f4.t">7-day chart</h3><p data-i18n="feat.f4.d">Messages per day as a bar chart, colored green / orange / red relative to your weekly average.</p></div>
     <div class="fcard"><div class="fico">#️⃣</div><h3 data-i18n="feat.f5.t">Tokens by model</h3><p data-i18n="feat.f5.d">A clean breakdown of your token usage across Opus, Sonnet and Haiku.</p></div>
     <div class="fcard"><div class="fico">🖥️</div><h3 data-i18n="feat.f6.t">Active sessions</h3><p data-i18n="feat.f6.d">Every running Claude Code session with its status (busy / idle) and per-session memory.</p></div>
+    <div class="fcard"><div class="fico">🎯</div><h3 data-i18n="feat.f7.t">Did you use what you paid for?</h3><p data-i18n="feat.f7.d">Your weekly quota as bars, with dotted ceilings for the other plans — so you can see whether a cheaper tier would have fit. Reconciled month by month, because the limit resets weekly but the bill is monthly.</p></div>
+    <div class="fcard"><div class="fico">💵</div><h3 data-i18n="feat.f8.t">Paid vs. actually used</h3><p data-i18n="feat.f8.d">What your usage would have cost at pay-as-you-go API prices, day by day and month by month, against what you actually paid — with trend and projection.</p></div>
   </div>
 </section>
 
@@ -307,6 +309,7 @@ const I18N = {
     "feat.f4.t":"7-day chart","feat.f4.d":"Messages per day as a bar chart, colored green / orange / red relative to your weekly average.",
     "feat.f5.t":"Tokens by model","feat.f5.d":"A clean breakdown of your token usage across Opus, Sonnet and Haiku.",
     "feat.f6.t":"Active sessions","feat.f6.d":"Every running Claude Code session with its status (busy / idle) and per-session memory.",
+    "feat.f7.t":"Did you use what you paid for?","feat.f7.d":"Your weekly quota as bars, with dotted ceilings for the other plans — so you can see whether a cheaper tier would have fit. Reconciled month by month, because the limit resets weekly but the bill is monthly.","feat.f8.t":"Paid vs. actually used","feat.f8.d":"What your usage would have cost at pay-as-you-go API prices, day by day and month by month, against what you actually paid — with trend and projection.",
     "how.eyebrow":"Under the hood","how.title":"Real data. Your own login. Nothing leaves your Mac.",
     "how.h1":"Straight from Anthropic","how.d1":"Every 5 minutes it makes one tiny 1-token Haiku call and reads the official <code>anthropic-ratelimit-*</code> response headers. These limits are unified across your whole account.",
     "how.h2":"Uses your existing auth","how.d2":"It reads the OAuth token that Claude Code already stores in your macOS Keychain. Nothing to paste, nothing to configure — Claude Code keeps it refreshed.",
@@ -340,6 +343,7 @@ const I18N = {
     "feat.f4.t":"Gráfico de 7 dias","feat.f4.d":"Mensagens por dia em barras, coloridas de verde / laranja / vermelho conforme sua média semanal.",
     "feat.f5.t":"Tokens por modelo","feat.f5.d":"Um detalhamento limpo do seu uso de tokens entre Opus, Sonnet e Haiku.",
     "feat.f6.t":"Sessões ativas","feat.f6.d":"Cada sessão do Claude Code em execução, com status (ocupada / ociosa) e memória por sessão.",
+    "feat.f7.t":"Você usou o que pagou?","feat.f7.d":"Sua cota semanal em barras, com os tetos dos outros planos pontilhados — dá para ver se um plano mais barato caberia. Conciliado mês a mês, porque o limite reseta por semana mas a cobrança é mensal.","feat.f8.t":"Pago vs. realmente utilizado","feat.f8.d":"Quanto o seu uso custaria pagando por token na API, dia a dia e mês a mês, contra o que você realmente pagou — com tendência e projeção.",
     "how.eyebrow":"Nos bastidores","how.title":"Dados reais. Seu próprio login. Nada sai do seu Mac.",
     "how.h1":"Direto da Anthropic","how.d1":"A cada 5 minutos faz uma minúscula chamada Haiku de 1 token e lê os headers oficiais <code>anthropic-ratelimit-*</code>. Esses limites são unificados na conta inteira.",
     "how.h2":"Usa o login que você já tem","how.d2":"Lê o token OAuth que o Claude Code já guarda no Keychain do macOS. Nada pra colar, nada pra configurar — o Claude Code mantém o refresh.",
@@ -373,6 +377,7 @@ const I18N = {
     "feat.f4.t":"Gráfico de 7 días","feat.f4.d":"Mensajes por día en barras, coloreadas verde / naranja / rojo según tu media semanal.",
     "feat.f5.t":"Tokens por modelo","feat.f5.d":"Un desglose limpio de tu uso de tokens entre Opus, Sonnet y Haiku.",
     "feat.f6.t":"Sesiones activas","feat.f6.d":"Cada sesión de Claude Code en ejecución, con su estado (ocupada / inactiva) y memoria por sesión.",
+    "feat.f7.t":"¿Usaste lo que pagaste?","feat.f7.d":"Tu cuota semanal en barras, con los techos de los otros planes punteados — así ves si un plan más barato habría alcanzado. Conciliado mes a mes, porque el límite se reinicia cada semana pero el cobro es mensual.","feat.f8.t":"Pagado vs. realmente usado","feat.f8.d":"Cuánto costaría tu uso pagando por token en la API, día a día y mes a mes, frente a lo que pagaste de verdad — con tendencia y proyección.",
     "how.eyebrow":"Por dentro","how.title":"Datos reales. Tu propio login. Nada sale de tu Mac.",
     "how.h1":"Directo de Anthropic","how.d1":"Cada 5 minutos hace una diminuta llamada Haiku de 1 token y lee las cabeceras oficiales <code>anthropic-ratelimit-*</code>. Estos límites son unificados para toda la cuenta.",
     "how.h2":"Usa tu login existente","how.d2":"Lee el token OAuth que Claude Code ya guarda en el Keychain de macOS. Nada que pegar, nada que configurar — Claude Code lo mantiene actualizado.",
@@ -406,6 +411,7 @@ const I18N = {
     "feat.f4.t":"Graphique 7 jours","feat.f4.d":"Messages par jour en barres, colorées vert / orange / rouge selon votre moyenne hebdomadaire.",
     "feat.f5.t":"Tokens par modèle","feat.f5.d":"Une répartition claire de votre usage de tokens entre Opus, Sonnet et Haiku.",
     "feat.f6.t":"Sessions actives","feat.f6.d":"Chaque session Claude Code en cours, avec son statut (occupée / inactive) et sa mémoire.",
+    "feat.f7.t":"Avez-vous utilisé ce que vous payez ?","feat.f7.d":"Votre quota hebdomadaire en barres, avec les plafonds des autres forfaits en pointillé — pour voir si un forfait moins cher aurait suffi. Réconcilié mois par mois, car la limite se réinitialise chaque semaine mais la facture est mensuelle.","feat.f8.t":"Payé vs. réellement utilisé","feat.f8.d":"Ce que votre usage aurait coûté au tarif API à l’usage, jour par jour et mois par mois, face à ce que vous avez réellement payé — avec tendance et projection.",
     "how.eyebrow":"Sous le capot","how.title":"Données réelles. Votre propre login. Rien ne quitte votre Mac.",
     "how.h1":"Directement d'Anthropic","how.d1":"Toutes les 5 minutes, une minuscule requête Haiku d'1 token lit les en-têtes officiels <code>anthropic-ratelimit-*</code>. Ces limites sont unifiées sur tout le compte.",
     "how.h2":"Utilise votre login existant","how.d2":"Il lit le token OAuth que Claude Code stocke déjà dans le Trousseau macOS. Rien à coller, rien à configurer — Claude Code le rafraîchit.",

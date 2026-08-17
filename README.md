@@ -10,22 +10,26 @@
 
 ## What it does
 
-Claude Monitor lives in your macOS menu bar and surfaces your Claude Code usage without opening a terminal:
+### At a glance — the menu bar
 
-- **5h session** — percent of the rolling 5-hour rate-limit window used, with a time-vs-usage pace marker and countdown to reset.
-- **Weekly (7d)** — percent of the rolling 7-day window used, same pace marker and reset countdown.
-- **Today** — message count and the projects you touched today.
-- **7-day bar chart** — messages per day, colored green/orange/red relative to your weekly average.
-- **Tokens by model** — a breakdown across Opus / Sonnet / Haiku.
-- **Active sessions** — running Claude Code sessions with status (busy/idle) and per-session memory.
+The menu-bar title is compact (a status glyph plus your current 5h/7d percentages) and collapses to a shorter form when the menu bar runs out of room. Clicking it opens a popover with the 5h and weekly windows, today's activity, a 7-day chart, tokens by model, and your running Claude Code sessions with per-session memory.
 
-The menu-bar title itself is compact — a status glyph plus the current 5h/7d percentages — and it adapts (or collapses to a shorter form) depending on how much room the menu bar has.
+### In depth — the Analytics window
+
+A second window (button in the popover footer) answers the questions the menu bar can't:
+
+- **Am I using what I pay for?** Your weekly quota consumption as bars, with dotted reference lines for the *other* plans' ceilings — so you can see at a glance whether a cheaper tier would have fit. Plus a month-by-month reconciliation, because the limit resets weekly while the bill is monthly.
+- **Is the subscription worth it?** What your usage would have cost at pay-as-you-go API prices, per day / month / cumulative, against what you actually paid.
+- **Where did it go?** Tokens by model over time, and a sortable table of every session with project, branch, active time and cost.
+- **Should I switch plans?** A verdict based on your observed weekly peaks — gated until there's enough data to say something honest.
 
 ## How it works
 
 - **Rate limits come from response headers.** Every 5 minutes the app makes one minimal 1-token Claude Haiku API call and reads the `anthropic-ratelimit-unified-*` headers from the HTTP response (`5h-utilization`, `7d-utilization`, `*-reset`, `*-status`, `overage-status`, `fallback-percentage`). These limits are unified across the whole account, not per model.
-- **Auth is read from your Keychain.** The app reads the OAuth token that Claude Code already stores in the macOS Keychain (`security find-generic-password -s "Claude Code-credentials"`). Claude Code manages and refreshes that token; the app never asks you to paste anything.
-- **Local stats come from your Claude files.** It reads `~/.claude/stats-cache.json`, `~/.claude/history.jsonl`, and `~/.claude/sessions/*.json` (refreshed every 30s) for today's messages, the 7-day chart, per-model tokens, and active sessions.
+- **Auth is read from your Keychain.** Claude Code stores its OAuth token there per account, keyed by config directory — the service name is `Claude Code-credentials-<sha256(config dir)[:8]>`. The app pins one account (default `~/.claude`) and derives the service from it, so it keeps measuring the same account even if you use several. Claude Code manages and refreshes the token; you never paste anything.
+- **Usage history comes from your transcripts.** It scans `<config dir>/projects/**/*.jsonl` for per-message model and token counts, deduplicating by `message.id` (transcripts write each message about twice, and forked sessions replay history into new files). The scan is incremental — it remembers how far it read into each file — and the aggregates are kept in `~/.claude-monitor/usage.json` so they survive Claude Code's own transcript cleanup.
+- **Rate-limit history is recorded, because the API doesn't keep any.** Each poll is appended to `~/.claude-monitor/ratelimits.jsonl`. Weekly windows are a fixed 7-day cadence, so past weeks can be reconstructed by converting cost into quota using a ratio calibrated against the windows actually measured — shown as estimates, and replaced by real readings as weeks go by.
+- **Today's counts and active sessions** come from `<config dir>/history.jsonl` and `<config dir>/sessions/*.json`, refreshed every 30s.
 
 > **Requirements & cost.** This app requires a working Claude Code auth / Anthropic API access on your machine — it does nothing useful without it. The periodic 1-token Haiku call has a tiny but non-zero cost (a handful of input tokens every 5 minutes). If that matters to you, adjust the interval in `fetchRateLimits()`.
 
@@ -65,14 +69,15 @@ You can generate the product screenshot above — with fixed sample data, no API
 
 ## Privacy
 
-- Reads **only** local Claude Code files (`~/.claude/...`) and the OAuth token from your macOS Keychain.
+- Reads **only** local Claude Code files (`<config dir>/...`) and the OAuth token from your macOS Keychain.
+- Writes only to `~/.claude-monitor/` — usage aggregates, the rate-limit log, and your plan config. Deleting that folder is a safe reset (it costs one full rescan, a few seconds).
 - The single periodic API call goes to `api.anthropic.com` and returns nothing but a 1-token reply plus rate-limit headers.
 - `--snapshot` mode uses **fixed sample data** — it never reads the Keychain, never calls the API, and never reflects your real usage.
 - **No telemetry, no analytics, no third-party services.** Nothing leaves your machine except the Anthropic API call.
 
 ## Stack
 
-Swift 6 · SwiftUI · AppKit · single-file app (`Sources/ClaudeMonitor.swift`) · zero external dependencies · targets macOS 14+ on Apple Silicon.
+Swift 6 · SwiftUI · AppKit · Swift Charts · zero external dependencies · targets macOS 14+ on Apple Silicon. Compiles with plain `swiftc` — `build.sh` builds everything under `Sources/`.
 
 ## Building the installer
 
