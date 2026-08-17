@@ -183,6 +183,13 @@ struct QuotaTab: View {
     }
 
     private func weeklyChart(_ weeks: [WeekQuota]) -> some View {
+        let all = PlanReference.lines(current: vm.config.currentTier)
+        // Teto visível: acima do teto do plano atual e das barras, com folga para
+        // o rótulo. Uma linha muito acima disso comprimiria as barras a nada.
+        let ceiling = max(1.12, (weeks.map(\.utilization).max() ?? 0) * 1.18)
+        let visibleReferences = all.filter { $0.level <= ceiling }
+        let offScale = all.filter { $0.level > ceiling }
+        return VStack(alignment: .leading, spacing: 4) {
         Chart {
             ForEach(weeks) { w in
                 // Cor = quão cheia ficou a cota (é o que importa); opacidade =
@@ -197,9 +204,22 @@ struct QuotaTab: View {
                             .foregroundColor(.secondary)
                     }
             }
-            RuleMark(y: .value("Cota", 1.0))
-                .foregroundStyle(.red)
-                .lineStyle(StrokeStyle(lineWidth: 1, dash: [5, 4]))
+            // Tetos dos planos. O do plano atual é 1,0 por definição; os outros
+            // caem em fator_alvo/fator_atual. Só desenha os que couberem — o Max
+            // 20x fica em 400% no Max 5x e achataria todas as barras.
+            ForEach(visibleReferences) { ref in
+                RuleMark(y: .value("Cota", ref.level))
+                    .foregroundStyle(ref.isCurrent ? .red : .secondary)
+                    .lineStyle(StrokeStyle(lineWidth: 1,
+                                           dash: ref.isCurrent ? [5, 4] : [2, 3]))
+                    .annotation(position: .top, alignment: .leading, spacing: 1) {
+                        Text(ref.isCurrent
+                             ? "teto do \(ref.tier.name) (seu plano)"
+                             : "teto do \(ref.tier.name)")
+                            .font(.system(size: 9, weight: ref.isCurrent ? .semibold : .regular))
+                            .foregroundColor(ref.isCurrent ? .red : .secondary)
+                    }
+            }
         }
         .chartYAxis {
             AxisMarks { v in
@@ -215,15 +235,22 @@ struct QuotaTab: View {
                 AxisValueLabel(format: .dateTime.day().month(.abbreviated))
             }
         }
+        .chartYScale(domain: 0...ceiling)
         .chartLegend(.hidden)
         .frame(minHeight: 190)
         .overlay(alignment: .topTrailing) {
-            VStack(alignment: .trailing, spacing: 2) {
-                Text("linha vermelha = 100% da cota").foregroundColor(.red)
-                Text("barra sólida = medido · translúcida = estimado")
-                    .foregroundColor(.secondary)
-            }
-            .font(.caption2)
+            Text("barra sólida = medido · translúcida = estimado")
+                .font(.caption2).foregroundColor(.secondary)
+        }
+
+        // Planos cujo teto não cabe na escala ficam citados, não desenhados.
+        if !offScale.isEmpty {
+            Text(offScale.map {
+                String(format: "teto do %@ ficaria em %.0f%% desta escala",
+                       $0.tier.name, $0.level * 100)
+            }.joined(separator: " · ") + " — fora do gráfico para não achatar as barras.")
+                .font(.caption2).foregroundColor(.secondary)
+        }
         }
     }
 

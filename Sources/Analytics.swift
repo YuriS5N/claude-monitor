@@ -296,6 +296,31 @@ struct PlanOption: Identifiable {
     var id: String { tier.id }
 }
 
+/// Onde o teto de OUTRO plano cai na escala do plano atual.
+///
+/// As barras são "% da cota do plano atual". Como os tiers são múltiplos de Pro,
+/// o teto de um plano alvo vive em `fator_alvo / fator_atual` dessa escala: no
+/// Max 5x, o teto do Pro fica em 1/5 = 20% e o do Max 20x em 20/5 = 400%.
+/// Ou seja, qualquer barra acima da linha do Pro é uma semana que teria estourado
+/// o Pro.
+struct PlanReferenceLine: Identifiable {
+    let tier: PlanTier
+    /// Altura na escala atual (1,0 = teto do plano atual).
+    let level: Double
+    let isCurrent: Bool
+    var id: String { tier.id }
+}
+
+enum PlanReference {
+    static func lines(current: PlanTier?) -> [PlanReferenceLine] {
+        guard let current else { return [] }
+        return PlanTier.all
+            .map { PlanReferenceLine(tier: $0, level: $0.factor / current.factor,
+                                     isCurrent: $0.id == current.id) }
+            .sorted { $0.level < $1.level }
+    }
+}
+
 enum PlanAdvisor {
     /// Um pico medido não é o pico possível, e estourar o limite semanal custa dias
     /// de trabalho — então a margem é 0,80, não 1,00.
