@@ -252,7 +252,8 @@ class VM: ObservableObject {
                     r7: result.sevenDayReset.timeIntervalSince1970,
                     tier: token.rateLimitTier ?? "",
                     sub: token.subscriptionType ?? "",
-                    overage: result.overageStatus
+                    overage: result.overageStatus,
+                    s7: result.sevenDayStatus
                 ))
             }
 
@@ -335,18 +336,24 @@ class VM: ObservableObject {
     }
 
     private func readOAuthToken() -> OAuthToken? {
-        let nowMs = Date().timeIntervalSince1970 * 1000
-        // Caminho rápido: reusa a conta que funcionou da última vez.
-        if let svc = cachedKeychainService,
-           let t = readToken(service: svc), t.expiresAt > nowMs {
+        // A conta é FIXADA pelo diretório de config, não escolhida por heurística.
+        // O serviço do Keychain é derivado do caminho (ver `ClaudeAccount`), então
+        // o monitor mede sempre a mesma conta mesmo quando a outra renova o token.
+        let pinned = config.account.keychainService
+        if let t = readToken(service: pinned) {
+            cachedKeychainService = pinned
             return t
         }
-        // Senão, redescobre: vence o token com expiração mais distante, que é o
-        // da conta que o Claude Code está renovando ativamente.
+        // Só se a conta fixada não tiver credencial (ainda não logou nela, ou o
+        // Claude Code mudou o esquema de nomes): cai para a descoberta antiga.
         var best: (service: String, token: OAuthToken)?
         for svc in keychainServices() {
             guard let t = readToken(service: svc) else { continue }
             if best == nil || t.expiresAt > best!.token.expiresAt { best = (svc, t) }
+        }
+        if let best {
+            NSLog("readOAuthToken: conta fixada (%@) sem credencial; usando %@",
+                  pinned, best.service)
         }
         cachedKeychainService = best?.service
         return best?.token
@@ -354,7 +361,7 @@ class VM: ObservableObject {
 
     // MARK: - Local Data
     func loadLocalData() {
-        let stats = loadJSON(home.appending(path: ".claude/stats-cache.json"), as: ClaudeStats.self)
+        let stats = loadJSON(config.account.statsCache, as: ClaudeStats.self)
         loadHistory()
         loadSessions()
         loadTotals(stats)
@@ -401,7 +408,7 @@ class VM: ObservableObject {
 
         var counts: [String: Int] = [:]
         var projects = Set<String>()
-        if let data = try? String(contentsOf: home.appending(path: ".claude/history.jsonl"), encoding: .utf8) {
+        if let data = try? String(contentsOf: config.account.historyFile, encoding: .utf8) {
             for line in data.split(separator: "\n") {
                 guard let d = try? JSONDecoder().decode(HistoryLine.self, from: Data(line.utf8)),
                       let ts = d.timestamp else { continue }
@@ -438,7 +445,7 @@ class VM: ObservableObject {
         isScanning = true
         DispatchQueue.global(qos: .utility).async { [weak self] in
             guard let self = self else { return }
-            let db = self.tokenScanner.scan(home: self.home)
+            let db = self.tokenScanner.scan(projects: self.config.account.projectsDir)
             let usage = self.tokenScanner.totals(windowDays: 7)
             let allTotal = usage.totalTokens
             let rows: [ModelRow] = usage.compactMap { name, u in
@@ -458,7 +465,7 @@ class VM: ObservableObject {
     }
 
     private func loadSessions() {
-        let dir = home.appending(path: ".claude/sessions")
+        let dir = config.account.sessionsDir
         guard let files = try? FileManager.default.contentsOfDirectory(at: dir, includingPropertiesForKeys: nil) else { sessions = []; return }
 
         let validSessions = files.filter { $0.pathExtension == "json" }.compactMap { f -> (String, String, Int, String)? in

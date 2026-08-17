@@ -90,8 +90,54 @@ struct QuotaTab: View {
             gauges
             headline(avg: avg, peak: peak, closed: closed.count)
             weeklyChart(weeks)
+            monthlyReconciliation(weeks)
             footnote(calibration: calibration, weeks: weeks)
             Spacer(minLength: 0)
+        }
+    }
+
+    /// Concilia as duas cadências: limite semanal, cobrança mensal.
+    private func monthlyReconciliation(_ weeks: [WeekQuota]) -> some View {
+        let months = QuotaAnalysis.monthlyReconciliation(weeks, config: vm.config).suffix(4)
+        return VStack(alignment: .leading, spacing: 7) {
+            HStack(spacing: 6) {
+                Text("Mês a mês").font(.subheadline.bold())
+                Text("— o limite reseta toda semana, mas a cobrança é mensal")
+                    .font(.caption2).foregroundColor(.secondary)
+            }
+            ForEach(months) { m in
+                HStack(spacing: 12) {
+                    Text(m.date, format: .dateTime.month(.wide).year())
+                        .frame(width: 110, alignment: .leading)
+                    // Uma marca por semana do mês, para ver a distribuição.
+                    HStack(spacing: 3) {
+                        ForEach(m.weeks) { w in
+                            RoundedRectangle(cornerRadius: 2)
+                                .fill(utilizationColor(w.utilization).opacity(w.isPartial ? 0.4 : 1))
+                                .frame(width: 26, height: 14)
+                                .overlay(Text("\(Int(w.utilization * 100))")
+                                    .font(.system(size: 8, weight: .bold)).foregroundColor(.white))
+                        }
+                    }
+                    .frame(width: 150, alignment: .leading)
+                    Text(String(format: "média %.0f%%", m.averageUtilization * 100))
+                        .frame(width: 80, alignment: .leading)
+                    Text(String(format: "aproveitou ~US$ %.0f de US$ %.0f", m.effectiveUsed, m.price))
+                        .foregroundColor(.secondary)
+                    if m.isPartial {
+                        Text("(em curso)").font(.caption2).foregroundColor(.secondary)
+                    }
+                    Spacer()
+                }
+                .font(.callout)
+            }
+            // Concatenação não passa por markdown no SwiftUI — o destaque vai por view.
+            (Text("Cota semanal não acumula").bold()
+             + Text(": terminar a semana em 50% não dá 150% na seguinte — aquela metade "
+                    + "evapora no reset. Por isso o aproveitamento do mês é a média das suas "
+                    + "semanas, não a soma contra um teto mensal."))
+                .font(.caption2).foregroundColor(.secondary)
+                .fixedSize(horizontal: false, vertical: true)
         }
     }
 
@@ -131,16 +177,22 @@ struct QuotaTab: View {
     private func weeklyChart(_ weeks: [WeekQuota]) -> some View {
         Chart {
             ForEach(weeks) { w in
+                // Cor = quão cheia ficou a cota (é o que importa); opacidade =
+                // se é leitura da API ou estimativa.
                 BarMark(x: .value("Semana", w.start, unit: .weekOfYear),
                         y: .value("Cota", w.utilization))
-                    .foregroundStyle(by: .value("Origem", w.measured ? "Medido" : "Estimado"))
-                    .opacity(w.isPartial ? 0.45 : 1)
+                    .foregroundStyle(utilizationColor(w.utilization))
+                    .opacity(w.isPartial ? 0.4 : (w.measured ? 1 : 0.62))
+                    .annotation(position: .top) {
+                        Text("\(Int(w.utilization * 100))%")
+                            .font(.system(size: 9, weight: w.measured ? .bold : .regular))
+                            .foregroundColor(.secondary)
+                    }
             }
             RuleMark(y: .value("Cota", 1.0))
                 .foregroundStyle(.red)
                 .lineStyle(StrokeStyle(lineWidth: 1, dash: [5, 4]))
         }
-        .chartForegroundStyleScale(["Medido": Color.blue, "Estimado": Color.blue.opacity(0.45)])
         .chartYAxis {
             AxisMarks { v in
                 AxisGridLine()
@@ -155,11 +207,15 @@ struct QuotaTab: View {
                 AxisValueLabel(format: .dateTime.day().month(.abbreviated))
             }
         }
-        .chartLegend(position: .bottom)
-        .frame(minHeight: 200)
+        .chartLegend(.hidden)
+        .frame(minHeight: 190)
         .overlay(alignment: .topTrailing) {
-            Text("linha vermelha = 100% da cota")
-                .font(.caption2).foregroundColor(.red)
+            VStack(alignment: .trailing, spacing: 2) {
+                Text("linha vermelha = 100% da cota").foregroundColor(.red)
+                Text("barra sólida = medido · translúcida = estimado")
+                    .foregroundColor(.secondary)
+            }
+            .font(.caption2)
         }
     }
 
@@ -167,10 +223,13 @@ struct QuotaTab: View {
     private func footnote(calibration: QuotaCalibration?, weeks: [WeekQuota]) -> some View {
         VStack(alignment: .leading, spacing: 6) {
             if let calibration {
-                Text(String(format: "Semanas “estimadas” vêm do custo-equivalente convertido em "
-                            + "cota (US$ %.0f por 1%%), calibrado com %d semana(s) que a API "
-                            + "realmente mediu. É estimativa, não leitura — a barra vira "
-                            + "“medido” conforme as semanas passam com o monitor rodando.",
+                Text(String(format: "Semanas translúcidas são estimativa: custo-equivalente "
+                            + "convertido em cota (US$ %.0f por 1%%), calibrado com %d semana(s) "
+                            + "medida(s) pela API. Com poucas calibrações o erro chega a ~15%%, "
+                            + "e sempre para BAIXO nas semanas que bateram no teto — ao ser "
+                            + "bloqueado você para de gastar, então o custo subestima a demanda. "
+                            + "Leia qualquer barra acima de 80%% como “no teto ou encostando”. "
+                            + "Cada semana que passa com o monitor rodando vira medida.",
                             calibration.dollarsPerPercent, calibration.windows))
                     .font(.caption2).foregroundColor(.secondary)
                     .fixedSize(horizontal: false, vertical: true)

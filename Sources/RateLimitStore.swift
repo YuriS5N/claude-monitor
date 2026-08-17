@@ -24,6 +24,10 @@ struct RateLimitSample: Codable {
     let tier: String     // rateLimitTier da conta (ex.: default_claude_max_5x)
     let sub: String      // subscriptionType (ex.: max)
     let overage: String
+    /// Status da janela 7d: allowed / allowed_warning / throttled. É a prova
+    /// direta de ter chegado perto ou batido no teto — a utilização sozinha
+    /// satura em 100% e não distingue "encostou" de "bateu e ficou bloqueado".
+    var s7: String?
 }
 
 /// Pico consolidado de uma janela.

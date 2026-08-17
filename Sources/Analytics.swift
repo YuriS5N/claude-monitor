@@ -1,4 +1,43 @@
 import Foundation
+import CryptoKit
+
+// MARK: - Conta ativa
+//
+// O usuário tem mais de uma conta na máquina, separadas por diretório de config
+// (`CLAUDE_CONFIG_DIR`) — no caso do Yuri, `claude-pessoal` → ~/.claude e
+// `claude-terra` → ~/.claude-terra. Tudo é por diretório: transcripts, histórico,
+// sessões e as credenciais.
+//
+// Decifrado por medição: o serviço do Keychain é
+//   "Claude Code-credentials-" + sha256(<caminho absoluto do config dir>)[:8]
+// Confirmado nos dois diretórios desta máquina. Isso substitui a heurística antiga
+// de "pegar o token de maior expiresAt", que fazia o monitor pular para a outra
+// conta sempre que ela renovava o token — foi o que aconteceu às 19:01 de 16/ago.
+struct ClaudeAccount {
+    let configDir: URL
+
+    static let defaultDir = FileManager.default.homeDirectoryForCurrentUser
+        .appending(path: ".claude")
+
+    var keychainService: String {
+        let digest = SHA256.hash(data: Data(configDir.path.utf8))
+        let hex = digest.map { String(format: "%02x", $0) }.joined()
+        return "Claude Code-credentials-\(hex.prefix(8))"
+    }
+
+    /// E-mail da conta, lido do `.claude.json` do próprio diretório.
+    var email: String? {
+        guard let data = try? Data(contentsOf: configDir.appending(path: ".claude.json")),
+              let obj = try? JSONSerialization.jsonObject(with: data) as? [String: Any],
+              let oauth = obj["oauthAccount"] as? [String: Any] else { return nil }
+        return oauth["emailAddress"] as? String
+    }
+
+    var projectsDir: URL { configDir.appending(path: "projects") }
+    var historyFile: URL { configDir.appending(path: "history.jsonl") }
+    var sessionsDir: URL { configDir.appending(path: "sessions") }
+    var statsCache: URL { configDir.appending(path: "stats-cache.json") }
+}
 
 // MARK: - Preço de lista da API
 //
@@ -111,11 +150,16 @@ struct FileCursor: Codable {
 /// por isso que existem. Uma vez contabilizado, um dia nunca é recalculado.
 struct UsageDatabase: Codable {
     /// Subir invalida o banco e força varredura completa.
-    static let currentVersion = 1
+    /// v2: buckets horários, para a calibração de cota não errar nas bordas da semana.
+    static let currentVersion = 2
 
     var version = UsageDatabase.currentVersion
     /// dia local ("yyyy-MM-dd") → modelo → tokens
     var days: [String: [String: TokenUsage]] = [:]
+    /// hora local ("yyyy-MM-dd HH") → modelo → tokens. As janelas de rate limit não
+    /// começam à meia-noite (a semanal reseta 04:00), então agregado diário erra a
+    /// borda em até um dia — o que numa janela parcial de 1,5 dia é erro grosseiro.
+    var hours: [String: [String: TokenUsage]] = [:]
     var sessions: [String: SessionRecord] = [:]
     /// caminho do transcript → quanto já foi lido
     var cursors: [String: FileCursor] = [:]
@@ -171,6 +215,15 @@ struct PlanPeriod: Codable, Identifiable {
 
 struct AppConfig: Codable {
     var planHistory: [PlanPeriod] = []
+    /// Diretório de config da conta a medir. Default `~/.claude` (claude-pessoal).
+    /// Trocar para `~/.claude-terra` faz o monitor medir a outra conta inteira —
+    /// credenciais, transcripts, sessões e histórico juntos.
+    var configDirPath: String?
+
+    var account: ClaudeAccount {
+        ClaudeAccount(configDir: configDirPath.map { URL(fileURLWithPath: $0) }
+                      ?? ClaudeAccount.defaultDir)
+    }
 
     /// Preço mensal vigente num dia.
     func monthlyPrice(on day: String) -> Double {
@@ -304,6 +357,21 @@ struct WeekQuota: Identifiable {
     var id: Date { start }
 }
 
+/// Um mês de cobrança, com as semanas de cota que couberam nele.
+struct MonthQuota: Identifiable {
+    let month: String          // "yyyy-MM"
+    let date: Date
+    let weeks: [WeekQuota]
+    let averageUtilization: Double
+    let price: Double
+    let isPartial: Bool
+
+    /// Quanto do que foi pago virou uso, e quanto evaporou com o reset semanal.
+    var effectiveUsed: Double { price * averageUtilization }
+    var wasted: Double { max(0, price - effectiveUsed) }
+    var id: String { month }
+}
+
 enum QuotaAnalysis {
     static let weekSeconds: TimeInterval = 7 * 24 * 3600
 
@@ -314,7 +382,10 @@ enum QuotaAnalysis {
         let events = costEvents(db)
         var ratios: [Double] = []
         for peak in store.peaks(.sevenDay, tier: tier) {
-            guard peak.peak > 0.02 else { continue }   // janela vazia não calibra nada
+            // Utilização muito baixa amplifica qualquer erro de borda na divisão;
+            // e uma janela saturada (>=99%) só diz "bateu no teto", não quanto de
+            // demanda havia — o cost/util de lá subestimaria o custo por 1%.
+            guard peak.peak >= 0.10, peak.peak < 0.99 else { continue }
             let end = peak.resetEpoch - peak.gapToReset  // instante da última amostra
             let start = peak.resetEpoch - weekSeconds
             let cost = costBetween(events, start, end)
@@ -372,15 +443,45 @@ enum QuotaAnalysis {
         return out.reversed().drop { $0.cost <= 0 }.map { $0 }
     }
 
+    /// Concilia as duas cadências: o limite reseta por SEMANA, a cobrança é por MÊS.
+    ///
+    /// O ponto que isso torna visível: **cota semanal não acumula**. Terminar a semana
+    /// em 50% não te dá 150% na seguinte — aquela metade simplesmente evapora. Então o
+    /// que você "aproveitou" do mês é a média das semanas dele, não o total do mês
+    /// contra um teto mensal (que não existe).
+    static func monthlyReconciliation(_ weeks: [WeekQuota], config: AppConfig,
+                                      cal: Calendar = .current) -> [MonthQuota] {
+        // A semana é atribuída ao mês do seu ponto médio — semanas a cavalo entre
+        // dois meses vão inteiras para onde passaram a maior parte do tempo.
+        var grouped: [String: [WeekQuota]] = [:]
+        let fmt = DateFormatter(); fmt.dateFormat = "yyyy-MM"
+        for w in weeks {
+            let mid = w.start.addingTimeInterval(w.end.timeIntervalSince(w.start) / 2)
+            grouped[fmt.string(from: mid), default: []].append(w)
+        }
+        return grouped.keys.sorted().compactMap { month in
+            guard let ws = grouped[month]?.sorted(by: { $0.start < $1.start }),
+                  let anchor = ws.first?.start else { return nil }
+            let closed = ws.filter { !$0.isPartial }
+            let avg = closed.isEmpty ? 0 : closed.reduce(0) { $0 + $1.utilization } / Double(closed.count)
+            let price = config.monthlyPrice(on: month + "-01")
+            return MonthQuota(month: month, date: anchor, weeks: ws,
+                              averageUtilization: avg, price: price,
+                              isPartial: ws.contains { $0.isPartial })
+        }
+    }
+
     // Lista (instante, custo) ordenada, para somar custo em qualquer intervalo.
+    // Usa os buckets HORÁRIOS: as janelas de rate limit não começam à meia-noite
+    // (a semanal reseta 04:00), e com agregado diário a borda erra até um dia —
+    // numa janela parcial de 1,5 dia isso destrói a calibração.
     private static func costEvents(_ db: UsageDatabase) -> [(Double, Double)] {
-        // O banco agrega por dia, então distribuímos o custo do dia no meio-dia.
-        // Suficiente para janelas de uma semana; erra só nas bordas.
+        let fmt = DateFormatter(); fmt.dateFormat = "yyyy-MM-dd HH"
         var out: [(Double, Double)] = []
-        for (day, models) in db.days {
-            guard let d = UsageSeries.parseDay(day) else { continue }
-            let noon = d.addingTimeInterval(12 * 3600).timeIntervalSince1970
-            out.append((noon, models.equivalentCost))
+        for (hour, models) in db.hours {
+            guard let d = fmt.date(from: hour) else { continue }
+            // Meio da hora, para não enviesar sistematicamente numa direção.
+            out.append((d.timeIntervalSince1970 + 1800, models.equivalentCost))
         }
         return out.sorted { $0.0 < $1.0 }
     }

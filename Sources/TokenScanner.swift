@@ -31,6 +31,7 @@ final class TokenScanner {
     private let isoFrac = ISO8601DateFormatter()
     private let isoPlain = ISO8601DateFormatter()
     private let dayFmt = DateFormatter()
+    private let hourFmt = DateFormatter()
 
     /// Set em memória derivado de `db.seenByDay` — evita rebuscar o array a cada linha.
     private var seen = Set<UInt64>()
@@ -40,6 +41,7 @@ final class TokenScanner {
         isoFrac.formatOptions = [.withInternetDateTime, .withFractionalSeconds]
         isoPlain.formatOptions = [.withInternetDateTime]
         dayFmt.dateFormat = "yyyy-MM-dd"
+        hourFmt.dateFormat = "yyyy-MM-dd HH"
         load()
     }
 
@@ -77,8 +79,7 @@ final class TokenScanner {
     // MARK: Varredura
 
     @discardableResult
-    func scan(home: URL) -> UsageDatabase {
-        let projects = home.appending(path: ".claude/projects")
+    func scan(projects: URL) -> UsageDatabase {
         let keys: [URLResourceKey] = [.contentModificationDateKey, .fileSizeKey]
 
         var live = Set<String>()
@@ -155,6 +156,7 @@ final class TokenScanner {
 
         let model = msg["model"] as? String ?? "unknown"
         db.days[day, default: [:]][model, default: TokenUsage()] += t
+        db.hours[hourFmt.string(from: date), default: [:]][model, default: TokenUsage()] += t
 
         // Subagentes carregam o sessionId do pai, então isso já agrega a sessão inteira.
         if let sid = obj["sessionId"] as? String {
